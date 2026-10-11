@@ -10,6 +10,7 @@
 import { AREAS, SEA_LEVEL_PROJECTIONS, TIDE_STATIONS } from './config.js';
 import { summarizeAir, summarizeWeather } from './data.js';
 import { aqiFromPm25 } from './air-risk.js';
+import { heatIndexF } from './heat-risk.js';
 import { thresholdsFromGreatDiurnalRange } from './risk.js';
 
 const ALL_BOROUGHS = ['Manhattan', 'Brooklyn', 'Queens', 'Bronx', 'Staten Island'];
@@ -158,7 +159,7 @@ function buildWeather(nowKey, gen) {
 }
 
 /** 48 h of air quality: PM2.5 in µg/m³ (converted to AQI with the EPA formula) and an ozone AQI. */
-function buildAir(nowKey, pm25At, ozoneAqiAt = () => 25) {
+function buildAir(nowKey, pm25At, ozoneAqiAt) {
   const start = parseKey(nowKey);
   const time = Array.from({ length: 48 }, (_, i) => fmtKey(start + i * HOUR));
   return AREAS.map((area) => {
@@ -170,30 +171,33 @@ function buildAir(nowKey, pm25At, ozoneAqiAt = () => 25) {
   });
 }
 
-const cleanAir = (nowKey) => buildAir(nowKey, () => 6);
-
 /**
- * Water level at each tide gauge, every 30 minutes for 48 h: astronomical tide
- * (a simple semidiurnal curve in MHHW feet) plus a storm surge hump that peaks
- * at `peakFt` above MHHW, `peakHour` hours after the start.
+ * Water level (ft above MHHW) at one tide gauge, h hours after the replay's start:
+ * an astronomical tide (a simple semidiurnal curve) plus a storm surge hump that
+ * peaks at `peakFt` above MHHW, `peakHour` hours after the start.
  */
-function buildTides(nowKey, peaks) {
+function waterLevelFn(station, { peakFt, peakHour, width = 6, highTideHour = peakHour }) {
+  const gt = station.greatDiurnalRangeFt;
+  const tide = (h) => -gt / 2 + (gt / 2 + 0.25) * Math.cos((2 * Math.PI * (h - highTideHour)) / 12.42);
+  const surgeAtPeak = Math.max(0, peakFt - tide(peakHour));
+  const surge = (h) => surgeAtPeak * bump(h, peakHour, width);
+  return { level: (h) => tide(h) + surge(h), surge };
+}
+
+/** Every 30 minutes for 48 h at each tide gauge, shaped like fetchTides() output. */
+function buildTides(nowKey, params) {
   const start = parseKey(nowKey);
   const out = {};
   for (const [key, station] of Object.entries(TIDE_STATIONS)) {
-    const gt = station.greatDiurnalRangeFt;
-    const { peakFt, peakHour, width = 6, highTideHour = peakHour } = peaks[key];
-    const tide = (h) => -gt / 2 + (gt / 2 + 0.25) * Math.cos((2 * Math.PI * (h - highTideHour)) / 12.42);
-    const surgeAtPeak = Math.max(0, peakFt - tide(peakHour));
-    const surge = (h) => surgeAtPeak * bump(h, peakHour, width);
+    const { level, surge } = waterLevelFn(station, params[key]);
     const predictions = Array.from({ length: 97 }, (_, i) => {
       const h = i / 2;
-      return { t: fmtKey(start + h * HOUR, ' '), v: Math.round((tide(h) + surge(h)) * 100) / 100 };
+      return { t: fmtKey(start + h * HOUR, ' '), v: Math.round(level(h) * 100) / 100 };
     });
     out[key] = {
       station,
       stationKey: key,
-      thresholds: thresholdsFromGreatDiurnalRange(gt),
+      thresholds: thresholdsFromGreatDiurnalRange(station.greatDiurnalRangeFt),
       latest: { t: predictions[0].t, v: predictions[0].v },
       surge: Math.round(surge(0) * 100) / 100,
       predictions,
@@ -204,97 +208,166 @@ function buildTides(nowKey, peaks) {
   return out;
 }
 
-const calmTides = (nowKey, highTideHour = 3) =>
-  buildTides(
-    nowKey,
-    Object.fromEntries(Object.keys(TIDE_STATIONS).map((k) => [k, { peakFt: 0.2, peakHour: highTideHour }])),
-  );
-
 const alert = (event, boroughs = ALL_BOROUGHS) => ({ event, headline: event, ends: null, boroughs });
 
+/** Cosine-eased curve through [hour, value] turning points, e.g. daily highs and lows. */
+function throughExtremes(points) {
+  return (h) => {
+    if (h <= points[0][0]) return points[0][1];
+    for (let i = 1; i < points.length; i++) {
+      const [h1, v1] = points[i];
+      if (h <= h1) {
+        const [h0, v0] = points[i - 1];
+        const t = (h - h0) / (h1 - h0);
+        return v0 + (v1 - v0) * (1 - Math.cos(Math.PI * t)) / 2;
+      }
+    }
+    return points[points.length - 1][1];
+  };
+}
+
 // ---------------- the replays ----------------
+//
+// Each spec gives hour-by-hour generators; h counts hours from the scenario's
+// `now` (negative = before it). `tides` gives surge parameters per gauge, or
+// `calmHighTide` for an ordinary tide.
 
-const BUILDERS = {
-  sandy(s) {
-    return {
-      tides: buildTides(s.now, {
-        battery: { peakFt: 9.0, peakHour: 9.4, highTideHour: 8.9 },
-        bergenPoint: { peakFt: 9.4, peakHour: 9.5, highTideHour: 9.1 },
-        sandyHook: { peakFt: 8.5, peakHour: 8.6, highTideHour: 8.4 },
-        kingsPoint: { peakFt: 6.7, peakHour: 10.8, highTideHour: 11.2 },
-      }),
-      weather: buildWeather(s.now, (h, area) => {
-        const gust = (30 + 50 * bump(h, 8, 7)) * WIND_FACTOR[area.windExposure];
-        return { precip: 0.02 + 0.13 * bump(h, 6, 6), temp: 58, rh: 92, gust, wind: gust * 0.6, code: h > -6 && h < 24 ? 63 : 61 };
-      }),
-      air: cleanAir(s.now),
-      alerts: [alert('Coastal Flood Warning'), alert('High Wind Warning')],
-    };
+const SPECS = {
+  sandy: {
+    tides: {
+      // The surge built for a day before peaking with the evening high tide.
+      battery: { peakFt: 9.0, peakHour: 9.4, highTideHour: 8.9, width: 11 },
+      bergenPoint: { peakFt: 9.4, peakHour: 9.5, highTideHour: 9.1, width: 11 },
+      sandyHook: { peakFt: 8.5, peakHour: 8.6, highTideHour: 8.4, width: 11 },
+      kingsPoint: { peakFt: 6.7, peakHour: 10.8, highTideHour: 11.2, width: 11 },
+    },
+    weather: (h, area) => {
+      const gust = (30 + 50 * bump(h, 8, 7)) * WIND_FACTOR[area.windExposure];
+      return { precip: 0.02 + 0.13 * bump(h, 6, 6), temp: 58, rh: 92, gust, wind: gust * 0.6, code: h > -6 && h < 24 ? 63 : 61 };
+    },
+    alerts: [alert('Coastal Flood Warning'), alert('High Wind Warning')],
   },
 
-  ida(s) {
-    // Hourly rain at Central Park, starting 2 PM (h = 0). The record 3.15 in fell from roughly 9 to 10 PM.
-    const rain = [0.03, 0.05, 0.08, 0.12, 0.25, 0.45, 0.9, 3.15, 1.5, 0.5, 0.15, 0.05];
-    const factor = { Manhattan: 1, Queens: 0.95, Bronx: 0.9, Brooklyn: 0.85, 'Staten Island': 0.75 };
-    return {
-      tides: calmTides(s.now, 6.5),
-      weather: buildWeather(s.now, (h, area) => {
-        const precip = h >= 0 && h < rain.length ? rain[h] * factor[area.borough] : 0;
-        const gust = 20 + 18 * bump(h, 7, 3);
-        return { precip, temp: 72, rh: 95, gust, wind: gust * 0.55, code: h >= 6 && h <= 9 ? 95 : precip > 0 ? 63 : 3 };
-      }),
-      air: cleanAir(s.now),
-      alerts: [alert('Flash Flood Emergency', ['Manhattan', 'Bronx', 'Brooklyn', 'Queens']), alert('Flash Flood Warning')],
-    };
+  ida: {
+    calmHighTide: 6.5,
+    weather: (h, area) => {
+      // Hourly rain at Central Park, starting 2 PM (h = 0). The record 3.15 in fell from roughly 9 to 10 PM.
+      const rain = [0.03, 0.05, 0.08, 0.12, 0.25, 0.45, 0.9, 3.15, 1.5, 0.5, 0.15, 0.05];
+      const factor = { Manhattan: 1, Queens: 0.95, Bronx: 0.9, Brooklyn: 0.85, 'Staten Island': 0.75 };
+      const precip = h >= 0 && h < rain.length ? rain[h] * factor[area.borough] : 0;
+      const gust = 20 + 18 * bump(h, 7, 3);
+      return { precip, temp: 72, rh: 95, gust, wind: gust * 0.55, code: h >= 6 && h <= 9 ? 95 : precip > 0 ? 63 : 3 };
+    },
+    alerts: [alert('Flash Flood Emergency', ['Manhattan', 'Bronx', 'Brooklyn', 'Queens']), alert('Flash Flood Warning')],
   },
 
-  'heat-2019'(s) {
+  'heat-2019': (() => {
+    // Central Park-like daily highs and lows (°F), hours from Saturday July 20, 10 AM.
+    const temp = throughExtremes([
+      [-42, 88], // Thu 4 PM
+      [-29, 77], // Fri 5 AM
+      [-18, 92], // Fri 4 PM
+      [-5, 81], // Sat 5 AM
+      [6, 95], // Sat 4 PM
+      [19, 82], // Sun 5 AM
+      [30, 95], // Sun 4 PM
+      [43, 80], // Mon 5 AM
+      [54, 86], // Mon 4 PM
+      [67, 72], // Tue 5 AM
+    ]);
     const offset = { Manhattan: 1, Bronx: 1, Brooklyn: 0, Queens: 0, 'Staten Island': -1 };
     return {
-      tides: calmTides(s.now),
-      weather: buildWeather(s.now, (h, area, hour) => {
-        const shift = offset[area.borough] - (isOceanFront(area) ? 3 : 0);
-        const temp = 88.5 + 6.5 * Math.cos((2 * Math.PI * (hour - 16)) / 24) + shift;
-        return { precip: 0, temp, rh: relativeHumidity(temp, 73), gust: 16, wind: 9, code: 1 };
-      }),
-      air: buildAir(s.now, (h) => 14 + 6 * bump(h, 6, 6), (h) => 55 + 50 * bump(h, 6, 4)),
+      weather: (h, area) => {
+        const t = temp(h) + offset[area.borough] - (isOceanFront(area) ? 3 : 0);
+        return { precip: 0, temp: t, rh: relativeHumidity(t, 73), gust: 16, wind: 9, code: 1 };
+      },
+      pm25: (h) => 14 + 6 * bump(h, 6, 6),
+      ozoneAqi: (h) => 55 + 50 * bump(h, 6, 4),
       alerts: [alert('Excessive Heat Warning')],
     };
+  })(),
+
+  'smoke-2023': {
+    weather: () => ({ precip: 0, temp: 66, rh: 55, gust: 14, wind: 8, code: 3 }),
+    // PM2.5 (µg/m³): rising all morning, peaking late afternoon, then slowly easing.
+    pm25: (h, area) => {
+      const offset = { Manhattan: 1.05, Bronx: 1.05, Brooklyn: 1, Queens: 1, 'Staten Island': 0.92 };
+      return Math.max(6, 100 + 190 * bump(h, 8, 4) + 60 * bump(h, 30, 10) - (h < 0 ? 4 * -h : 0)) * offset[area.borough];
+    },
+    alerts: [alert('Air Quality Alert')],
   },
 
-  'smoke-2023'(s) {
-    const offset = { Manhattan: 1.05, Bronx: 1.05, Brooklyn: 1, Queens: 1, 'Staten Island': 0.92 };
-    return {
-      tides: calmTides(s.now),
-      weather: buildWeather(s.now, () => ({ precip: 0, temp: 66, rh: 55, gust: 14, wind: 8, code: 3 })),
-      // PM2.5 (µg/m³): rising all morning, peaking late afternoon, then slowly easing.
-      air: buildAir(s.now, (h, area) => (100 + 190 * bump(h, 8, 4) + 60 * bump(h, 30, 10)) * offset[area.borough]),
-      alerts: [alert('Air Quality Alert')],
-    };
-  },
-
-  isaias(s) {
-    return {
-      tides: buildTides(s.now, {
-        battery: { peakFt: 1.6, peakHour: 6.5, width: 4 },
-        bergenPoint: { peakFt: 1.7, peakHour: 6.6, width: 4 },
-        sandyHook: { peakFt: 1.5, peakHour: 6.2, width: 4 },
-        kingsPoint: { peakFt: 1.4, peakHour: 8.5, width: 4 },
-      }),
-      weather: buildWeather(s.now, (h, area) => {
-        const precip = 0.9 * bump(h, 4, 2.5) + (h >= 0 && h < 10 ? 0.02 : 0);
-        const gust = (25 + 45 * bump(h, 6, 3)) * WIND_FACTOR[area.windExposure];
-        return { precip, temp: 80, rh: 88, gust, wind: gust * 0.58, code: h >= 3 && h <= 6 ? 95 : precip > 0.05 ? 63 : 3 };
-      }),
-      air: cleanAir(s.now),
-      alerts: [alert('Tropical Storm Warning')],
-    };
+  isaias: {
+    tides: {
+      battery: { peakFt: 1.6, peakHour: 6.5, width: 4 },
+      bergenPoint: { peakFt: 1.7, peakHour: 6.6, width: 4 },
+      sandyHook: { peakFt: 1.5, peakHour: 6.2, width: 4 },
+      kingsPoint: { peakFt: 1.4, peakHour: 8.5, width: 4 },
+    },
+    weather: (h, area) => {
+      const precip = 0.9 * bump(h, 4, 2.5) + (h >= 0 && h < 10 ? 0.02 : 0);
+      const gust = (25 + 45 * bump(h, 6, 3)) * WIND_FACTOR[area.windExposure];
+      return { precip, temp: 80, rh: 88, gust, wind: gust * 0.58, code: h >= 3 && h <= 6 ? 95 : precip > 0.05 ? 63 : 3 };
+    },
+    alerts: [alert('Tropical Storm Warning')],
   },
 };
+
+const CLEAN_PM25 = () => 6;
+const BACKGROUND_OZONE = () => 25;
+
+function tideParams(spec) {
+  if (spec.tides) return spec.tides;
+  return Object.fromEntries(Object.keys(TIDE_STATIONS).map((k) => [k, { peakFt: 0.2, peakHour: spec.calmHighTide ?? 3 }]));
+}
+
+/**
+ * Hour-by-hour values for every neighborhood over any window of a replay, for
+ * the scroll-driven story: heat index, temperature, rain, gusts, AQI and the
+ * water level at each tide gauge (ft above MHHW).
+ */
+export function scenarioHourly(id, fromKey, hours) {
+  const s = scenarioById(id);
+  const spec = SPECS[id];
+  const offset = (parseKey(fromKey) - parseKey(s.now)) / HOUR;
+  const time = Array.from({ length: hours }, (_, k) => fmtKey(parseKey(fromKey) + k * HOUR));
+  const params = tideParams(spec);
+  const water = Object.fromEntries(
+    Object.entries(TIDE_STATIONS).map(([key, station]) => {
+      const { level } = waterLevelFn(station, params[key]);
+      return [key, time.map((_, k) => Math.round(level(offset + k) * 100) / 100)];
+    }),
+  );
+  const areas = AREAS.map((area) => {
+    const row = { temp: [], heatIndex: [], precip: [], gust: [], aqi: [] };
+    time.forEach((t, k) => {
+      const h = offset + k;
+      const w = spec.weather(h, area, +t.slice(11, 13));
+      row.temp.push(Math.round(w.temp * 10) / 10);
+      row.heatIndex.push(heatIndexF(w.temp, w.rh));
+      row.precip.push(Math.round(w.precip * 100) / 100);
+      row.gust.push(Math.round(w.gust));
+      const pm = (spec.pm25 || CLEAN_PM25)(h, area);
+      row.aqi.push(Math.max(aqiFromPm25(Math.round(pm * 10) / 10), Math.round((spec.ozoneAqi || BACKGROUND_OZONE)(h, area))));
+    });
+    return row;
+  });
+  return { time, areas, water };
+}
 
 /** Inputs for a replay, shaped exactly like the live inputs app.js assembles. */
 export function buildScenario(id) {
   const s = scenarioById(id);
   if (!s) throw new Error(`Unknown scenario: ${id}`);
-  return { mode: id, scenario: s, nowKey: s.now, reports: null, ...BUILDERS[id](s) };
+  const spec = SPECS[id];
+  return {
+    mode: id,
+    scenario: s,
+    nowKey: s.now,
+    reports: null,
+    tides: buildTides(s.now, tideParams(spec)),
+    weather: buildWeather(s.now, spec.weather),
+    air: buildAir(s.now, spec.pm25 || CLEAN_PM25, spec.ozoneAqi || BACKGROUND_OZONE),
+    alerts: spec.alerts,
+  };
 }

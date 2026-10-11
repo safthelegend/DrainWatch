@@ -2,10 +2,14 @@
   "name": "drainwatch",
   "private": true,
   "type": "module",
-  "description": "Live climate risk for every NYC neighborhood: floods, heat, air quality, wind and storms.",
+  "description": "How climate risk hits New York City, block by block: a scroll-driven 3D story and a live risk app.",
   "scripts": {
     "start": "python3 -m http.server 8000",
-    "test": "node --test"
+    "test": "node --test",
+    "build:geodata": "node scripts/build-geodata.mjs",
+    "build:elevation": "node scripts/bake-elevation.mjs",
+    "build:vendor": "node scripts/build-vendor.mjs",
+    "build:stills": "node scripts/render-stills.mjs http://localhost:8000"
   },
   "engines": {
     "node": ">=18"

@@ -1,9 +1,9 @@
-// Next 48 h of water levels at a tide gauge, with NOAA's minor / moderate / major
+// 48 h of water levels at a tide gauge (live or replayed), with NOAA's minor / moderate / major
 // flood thresholds drawn across it. Built on the shared time chart.
 
 import { timeChartSvg } from './charts.js';
 
-export function tideChartSvg(tide) {
+export function tideChartSvg(tide, { live = true } = {}) {
   const { predictions, surge, thresholds } = tide;
   if (!predictions.length) return '';
   // Live predictions are astronomical tide only, so add the current surge on top.
@@ -20,7 +20,8 @@ export function tideChartSvg(tide) {
       { value: thresholds.moderate, label: 'Moderate', level: 'high' },
       { value: thresholds.major, label: 'Major', level: 'severe' },
     ],
-    ariaLabel: 'Water level for the next 48 hours compared with NOAA flood thresholds',
+    ariaLabel: `Water level${live ? ' for the next 48 hours' : ''} compared with NOAA flood thresholds`,
+    live,
   });
   const what = tide.includesSurge ? 'Reconstructed water level' : `Forecast = predicted tide${shift ? ` + ${shift.toFixed(2)} ft current surge` : ''}`;
   const slr = tide.seaLevelRiseFt ? ` Includes +${Math.round(tide.seaLevelRiseFt * 12)} in of projected sea level rise.` : '';

@@ -1,8 +1,8 @@
 // Small, dependency-free SVG charts. Each builder returns a markup string;
 // app.js drops it into the page and wires the hover layer with attachChartHover().
 //
-// Conventions: 2px lines, a 12% area wash, hairline gridlines, threshold lines
-// labelled in ink (not in the threshold color), and one labelled peak.
+// Conventions: 2px lines in the hazard's ramp, a faint area wash, hairline
+// gridlines, threshold lines labelled in ink, and one labelled peak.
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -19,42 +19,6 @@ export function hourLabel(t) {
   return `${day} ${hh}${m && m !== '00' ? `:${m}` : ''} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
-// ---------------- gauge ----------------
-
-/**
- * 270° ring gauge for a 0–4 score. The arc carries the level color; the
- * level name and score sit in the middle so color is never the only cue.
- */
-export function gaugeSvg({ score, level, label, sub }) {
-  const size = 160;
-  const r = 64;
-  const c = size / 2;
-  const circ = 2 * Math.PI * r;
-  const arc = circ * 0.75;
-  const frac = score == null ? 0 : Math.max(0.02, Math.min(1, score / 4));
-  const color = level ? `var(--lvl-${level})` : 'var(--lvl-none)';
-  // tick marks at the level boundaries (1, 2, 3)
-  const ticks = [1, 2, 3]
-    .map((s) => {
-      const a = ((135 + (s / 4) * 270) * Math.PI) / 180;
-      const x1 = c + Math.cos(a) * (r - 9);
-      const y1 = c + Math.sin(a) * (r - 9);
-      const x2 = c + Math.cos(a) * (r + 9);
-      const y2 = c + Math.sin(a) * (r + 9);
-      return `<line class="gauge-tick" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" />`;
-    })
-    .join('');
-  return `
-    <svg viewBox="0 0 ${size} ${size}" role="img" aria-label="${esc(label)}${score != null ? `, score ${score.toFixed(1)} out of 4` : ''}">
-      <circle class="gauge-track" cx="${c}" cy="${c}" r="${r}" stroke-dasharray="${arc} ${circ}" transform="rotate(135 ${c} ${c})" />
-      <circle class="gauge-fill" cx="${c}" cy="${c}" r="${r}" stroke="${color}"
-        stroke-dasharray="${arc} ${circ}" stroke-dashoffset="${(arc * (1 - frac)).toFixed(1)}" transform="rotate(135 ${c} ${c})" />
-      ${ticks}
-      <text class="gauge-level" x="${c}" y="${c + 4}" text-anchor="middle">${esc(label)}</text>
-      <text class="gauge-score" x="${c}" y="${c + 24}" text-anchor="middle">${esc(sub)}</text>
-    </svg>`;
-}
-
 // ---------------- hourly time chart ----------------
 
 function niceStep(range, target = 4) {
@@ -65,11 +29,11 @@ function niceStep(range, target = 4) {
 }
 
 /**
- * rows: [{ t, v }] hourly (or finer) values starting now.
+ * rows: [{ t, v }] hourly (or finer) values, starting now when live (else at a replay's start).
  * thresholds: [{ value, label, level }] reference lines.
  * type: 'line' (area + line) or 'bar' (for rainfall amounts).
  */
-export function timeChartSvg({ rows, thresholds = [], type = 'line', unit = '', decimals = 0, yMin, yMax, ariaLabel, minTop }) {
+export function timeChartSvg({ rows, thresholds = [], type = 'line', unit = '', decimals = 0, yMin, yMax, ariaLabel, minTop, live = true }) {
   const pts = rows.filter((r) => r.v != null);
   if (pts.length < 2) return '<p class="note">Not enough data to chart.</p>';
 
@@ -108,7 +72,8 @@ export function timeChartSvg({ rows, thresholds = [], type = 'line', unit = '', 
       days += `<text class="c-tick" x="${(+xx + 4).toFixed(1)}" y="${H - 7}">${d}</text>`;
     }
   });
-  days += `<text class="c-tick" x="${P.left}" y="${H - 7}">Now</text>`;
+  const first = live ? 'Now' : new Date(`${rows[0].t.slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' });
+  days += `<text class="c-tick" x="${P.left}" y="${H - 7}">${first}</text>`;
 
   // thresholds, labels nudged apart so they never overlap
   let lastY = Infinity;
@@ -245,17 +210,5 @@ export function seaLevelChartSvg(projections, { referenceIn = 12, referenceLabel
 
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Projected sea level rise for New York City by period. The data is also in the table below.">
     ${grid}${ref}${rows}
-  </svg>`;
-}
-
-// ---------------- progress ring ----------------
-
-export function ringSvg(done, total) {
-  const r = 20;
-  const circ = 2 * Math.PI * r;
-  const frac = total ? done / total : 0;
-  return `<svg viewBox="0 0 52 52" aria-hidden="true">
-    <circle class="prep-ring-track" cx="26" cy="26" r="${r}" />
-    <circle class="prep-ring" cx="26" cy="26" r="${r}" stroke-dasharray="${circ}" stroke-dashoffset="${(circ * (1 - frac)).toFixed(1)}" transform="rotate(-90 26 26)" />
   </svg>`;
 }

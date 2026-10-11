@@ -2,298 +2,221 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DrainWatch NYC · Live climate risk for every neighborhood</title>
-    <meta name="description" content="Live flood, heat, air quality and storm risk for New York City neighborhoods, plus a Climate Time Machine that replays Sandy, Ida and other disasters." />
-    <meta name="theme-color" content="#0b1d33" />
-    <meta property="og:title" content="DrainWatch NYC" />
-    <meta property="og:description" content="Live climate risk for every NYC neighborhood: floods, heat, air quality, wind and storms." />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%230b1d33'/><path d='M16 5c-4.4 6.4-7.5 10.6-7.5 14.2a7.5 7.5 0 0 0 15 0C23.5 15.6 20.4 11.4 16 5z' fill='%2338bdf8'/><path d='M10 21c2 1.4 4 1.4 6 0s4-1.4 6 0' stroke='%230b1d33' stroke-width='1.8' fill='none' stroke-linecap='round'/></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>DrainWatch: How climate risk hits New York, block by block</title>
+    <meta name="description" content="Replay Hurricane Sandy, the 2019 heat wave and the 2023 wildfire smoke in 3D, then check flood, heat, air and wind risk for any New York City address, live." />
+    <meta name="theme-color" content="#F6F3EC" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0F0F0E" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23141414'/><text x='16' y='24' font-family='Georgia,serif' font-size='22' text-anchor='middle' fill='%23F6F3EC'>D</text></svg>" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
     <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
     <link rel="stylesheet" href="css/style.css" />
+    <script type="importmap">
+      { "imports": { "three": "./vendor/three/three.min.js" } }
+    </script>
     <script>
-      // Apply the saved theme before first paint so the page never flashes.
+      // Apply a saved theme before first paint so the page never flashes.
       try {
         const t = localStorage.getItem('drainwatch-theme');
         if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
       } catch (e) {}
     </script>
   </head>
-  <body data-hazard="floods">
-    <svg class="sprite" aria-hidden="true" focusable="false">
-      <symbol id="i-floods" viewBox="0 0 24 24"><path d="M12 3c-3.6 5.1-6 8.4-6 11.4a6 6 0 0 0 12 0C18 11.4 15.6 8.1 12 3z" /><path d="M9 15.5c1 .8 2 .8 3 0s2-.8 3 0" /></symbol>
-      <symbol id="i-heat" viewBox="0 0 24 24"><path d="M10 13.6V5a2 2 0 1 1 4 0v8.6a4 4 0 1 1-4 0z" /><path d="M12 17v-6" /><path d="M18 5h2M18 9h2" /></symbol>
-      <symbol id="i-air" viewBox="0 0 24 24"><path d="M17.5 15H7.2a4.2 4.2 0 1 1 1-8.3 5.6 5.6 0 0 1 10.6 2.2A3.1 3.1 0 0 1 17.5 15z" /><path d="M7 19h.01M11 20h.01M15 19h.01M9 22h.01M13 22.5h.01" /></symbol>
-      <symbol id="i-wind" viewBox="0 0 24 24"><path d="M3 8h10.5a3 3 0 1 0-3-3" /><path d="M3 12h15a3 3 0 1 1-3 3" /><path d="M3 16h7" /></symbol>
-      <symbol id="i-clock" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5" /><path d="M3.5 3.5v5h5" /><path d="M12 7.5V12l3 2" /></symbol>
-      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></symbol>
-      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8" /><path d="M4 3.5V8h4.5" /><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16" /><path d="M20 20.5V16h-4.5" /></symbol>
-      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4" /></symbol>
-      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></symbol>
-      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 4.2 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z" /><path d="M12 9.5v4M12 17h.01" /></symbol>
-      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21.5s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z" /><circle cx="12" cy="10.5" r="2.4" /></symbol>
-      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" /></symbol>
-      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></symbol>
-      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" /></symbol>
-      <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></symbol>
-      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l11-7z" /></symbol>
-      <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 9c2.5 2 4.5 2 7 0s4.5-2 7 0 4.5 2 6 0.5" /><path d="M2 15c2.5 2 4.5 2 7 0s4.5-2 7 0 4.5 2 6 .5" /></symbol>
-      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.2 7.5 9.5 4.4-1.3 7.5-4.9 7.5-9.5V6z" /><path d="m9 12 2 2 4-4" /></symbol>
-    </svg>
+  <body data-hazard="heat">
+    <a class="skip" href="#app">Skip to the address check and map</a>
 
-    <a class="skip-link" href="#dashboard">Skip to the dashboard</a>
-
-    <header class="topbar">
-      <a class="brand" href="#" aria-label="DrainWatch home">
-        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
-          <rect width="32" height="32" rx="9" class="logo-bg" />
-          <path class="logo-drop" d="M16 5c-4.4 6.4-7.5 10.6-7.5 14.2a7.5 7.5 0 0 0 15 0C23.5 15.6 20.4 11.4 16 5z" />
-          <path class="logo-wave" d="M10 21c2 1.4 4 1.4 6 0s4-1.4 6 0" />
-        </svg>
-        <span class="brand-text">
-          <span class="brand-name">DrainWatch</span>
-          <span class="brand-tag">NYC climate risk, live</span>
-        </span>
-      </a>
-
-      <nav class="hazard-tabs" role="tablist" aria-label="Hazards">
-        <button class="hazard-tab" role="tab" id="tab-floods" data-hazard="floods" aria-controls="dashboard" aria-selected="true">
-          <svg class="icon" aria-hidden="true"><use href="#i-floods" /></svg><span>Floods</span>
-        </button>
-        <button class="hazard-tab" role="tab" id="tab-heat" data-hazard="heat" aria-controls="dashboard" aria-selected="false" tabindex="-1">
-          <svg class="icon" aria-hidden="true"><use href="#i-heat" /></svg><span>Heat</span>
-        </button>
-        <button class="hazard-tab" role="tab" id="tab-air" aria-label="Air quality" data-hazard="air" aria-controls="dashboard" aria-selected="false" tabindex="-1">
-          <svg class="icon" aria-hidden="true"><use href="#i-air" /></svg><span class="tab-long">Air quality</span><span class="tab-short" aria-hidden="true">Air</span>
-        </button>
-        <button class="hazard-tab" role="tab" id="tab-wind" aria-label="Wind and storms" data-hazard="wind" aria-controls="dashboard" aria-selected="false" tabindex="-1">
-          <svg class="icon" aria-hidden="true"><use href="#i-wind" /></svg><span class="tab-long">Wind &amp; storms</span><span class="tab-short" aria-hidden="true">Wind</span>
-        </button>
+    <header class="masthead">
+      <a class="wordmark" href="#top">DrainWatch</a>
+      <nav class="sections" aria-label="Hazard">
+        <a href="#floods" data-hazard="floods">Floods</a>
+        <a href="#heat" data-hazard="heat" aria-current="page">Heat</a>
+        <a href="#air" data-hazard="air">Air</a>
+        <a href="#wind" data-hazard="wind">Wind</a>
       </nav>
-
-      <div class="top-actions">
-        <span id="mode-pill" class="mode-pill" data-state="loading"><span class="pulse" aria-hidden="true"></span><span id="mode-text">Connecting…</span></span>
-        <button id="refresh-btn" class="icon-btn" type="button" aria-label="Refresh live data" title="Refresh live data">
-          <svg class="icon" aria-hidden="true"><use href="#i-refresh" /></svg>
-        </button>
-        <button id="theme-btn" class="icon-btn" type="button" aria-label="Switch to dark mode" title="Switch theme">
-          <svg class="icon icon-sun" aria-hidden="true"><use href="#i-sun" /></svg>
-          <svg class="icon icon-moon" aria-hidden="true"><use href="#i-moon" /></svg>
-        </button>
-      </div>
+      <p class="status" id="status" aria-live="polite">Connecting to live data…</p>
+      <button type="button" class="theme-toggle" id="theme-toggle">Dark</button>
     </header>
 
-    <main id="dashboard" tabindex="-1" role="tabpanel" aria-labelledby="tab-floods">
-      <section class="hero" aria-label="Citywide summary">
-        <div class="hero-glow" aria-hidden="true"></div>
-        <div class="hero-grid">
-          <div class="hero-status">
-            <div id="gauge" class="gauge"></div>
-            <div class="hero-copy">
-              <p id="hero-eyebrow" class="eyebrow">Flood risk · next 48 hours</p>
-              <h1 id="hero-title" class="hero-title">Checking conditions…</h1>
-              <p id="hero-headline" class="hero-headline" aria-live="polite">Loading live data from NOAA, the National Weather Service, Open-Meteo and NYC 311.</p>
-            </div>
-          </div>
-          <ul id="kpis" class="kpis" aria-label="Key numbers"></ul>
+    <!-- One canvas for the whole story. Purely visual: every fact in it is also in the text. -->
+    <div class="sky" id="sky" aria-hidden="true"></div>
+    <canvas id="stage" aria-hidden="true"></canvas>
+    <img class="still" id="still" alt="" aria-hidden="true" hidden />
+    <svg class="leader" id="leader" aria-hidden="true"><line x1="0" y1="0" x2="0" y2="0" /><circle r="4" /></svg>
+
+    <main>
+      <!-- 1. Hero -->
+      <section class="hero" id="top" aria-labelledby="hero-head">
+        <div class="hero-text">
+          <p class="label" id="hero-kicker">July 20, 2019</p>
+          <p class="mega" id="hero-mega"><span class="mega-num">106</span><span class="mega-unit">°F</span></p>
+          <p class="mega-label" id="hero-mega-label">feels like</p>
+          <h1 class="display" id="hero-head">New York's hottest weekend in years. At night, it never dropped below 80.</h1>
         </div>
 
-        <div class="time-machine" id="time-machine">
-          <div class="tm-head">
-            <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
-            <div>
-              <h2>Climate Time Machine</h2>
-              <p>Replay real disasters, or raise the sea, and watch the risk model react.</p>
-            </div>
+        <form class="address address-hero" id="address-form" role="search" autocomplete="off">
+          <label class="label" for="address-input">Check your address, right now</label>
+          <div class="address-row">
+            <input id="address-input" type="search" placeholder="160 Van Brunt St, Brooklyn" />
+            <button type="submit">Check</button>
           </div>
-          <div class="tm-controls">
-            <div class="segmented" id="scenario-picker" role="radiogroup" aria-label="Choose live data or a historical replay"></div>
-            <div class="slr" id="slr-control">
-              <label for="slr-range">Sea level <output id="slr-output">Today</output></label>
-              <input id="slr-range" type="range" min="0" max="3" step="1" value="0" />
-              <div class="slr-ticks" id="slr-ticks" aria-hidden="true"></div>
-            </div>
+          <div class="address-results" id="address-results"></div>
+          <p class="live-line" id="live-line">Loading live conditions…</p>
+          <p class="also" id="also-line" hidden></p>
+        </form>
+
+        <p class="scroll-cue" id="scroll-cue"><span>Scroll for the story</span> <a href="#app">or skip to the map</a></p>
+      </section>
+
+      <!-- 2. Pinned timeline: scroll scrubs hour by hour -->
+      <section class="chapter chapter-timeline" id="timeline" aria-labelledby="timeline-title">
+        <div class="pin">
+          <div class="side">
+            <p class="label" id="timeline-kicker">72 hours</p>
+            <h2 class="h2" id="timeline-title">Three days, and nights that never cooled off</h2>
+            <p class="dek" id="timeline-dek"></p>
+            <p class="clock" aria-hidden="true"><span id="clock-time">Friday, midnight</span></p>
+            <p class="readout" aria-hidden="true"><span class="readout-num" id="readout-num">—</span><span class="readout-unit" id="readout-unit"></span></p>
+            <ol class="beats" id="beats"></ol>
+            <p class="modeled" id="timeline-note">Modeled from 39 neighborhoods. Approximate reconstruction from NOAA and NWS records.</p>
           </div>
-          <p id="scenario-note" class="tm-note" aria-live="polite"></p>
+          <figure class="timeline-strip" aria-hidden="true">
+            <svg id="timeline-svg" preserveAspectRatio="none"></svg>
+          </figure>
         </div>
       </section>
 
-      <div class="workspace">
-        <div class="map-panel">
-          <div id="map" role="region" aria-label="Map of neighborhood risk. The neighborhood list in the sidebar has the same information."></div>
-
-          <form id="search-form" class="map-search" autocomplete="off" role="search">
-            <svg class="icon" aria-hidden="true"><use href="#i-search" /></svg>
-            <label class="sr-only" for="search-input">Check an NYC address</label>
-            <input id="search-input" type="search" placeholder="Check your address, e.g. 160 Van Brunt St" />
-            <button type="submit">Check</button>
-            <div id="search-results" class="search-results"></div>
-          </form>
-
-          <div class="legend" id="legend" aria-hidden="true"></div>
-          <p class="map-hint" id="map-hint">Click the map to zoom with your scroll wheel · click anywhere to check that spot</p>
-        </div>
-
-        <aside class="sidebar" id="sidebar" aria-label="Details">
-          <div id="report-slot"></div>
-          <div id="hazard-cards"></div>
-          <section class="card">
-            <div class="card-head">
-              <h2>Neighborhoods</h2>
-              <span class="card-sub" id="ranking-sub">Ranked by risk</span>
-            </div>
-            <ol id="area-list" class="area-list"></ol>
-          </section>
-        </aside>
-      </div>
-    </main>
-
-    <section class="story" id="why" aria-labelledby="why-title">
-      <div class="story-inner">
-        <p class="kicker">Why this matters</p>
-        <h2 id="why-title" class="story-title">Climate change is already here. It just doesn't hit every block the same way.</h2>
-        <p class="story-lede">
-          New York has 520 miles of shoreline, a century-old sewer system and neighborhoods with very different
-          amounts of shade, air conditioning and clean air. DrainWatch turns live public data into a plain-language risk level for each one.
-        </p>
-        <div class="facts">
-          <article class="fact">
-            <p class="fact-num">1 ft+</p>
-            <p class="fact-text">Sea level rise in New York Harbor since 1900, and the rise is speeding up.</p>
-            <p class="fact-src">NYC Panel on Climate Change</p>
-          </article>
-          <article class="fact">
-            <p class="fact-num">3.15 in</p>
-            <p class="fact-text">Rain in one hour in Central Park during Ida (2021). Most sewers handle about 1.75.</p>
-            <p class="fact-src">National Weather Service · NYC DEP</p>
-          </article>
-          <article class="fact">
-            <p class="fact-num">~350</p>
-            <p class="fact-text">New Yorkers who die early each year because of hot weather, most of them at home without air conditioning.</p>
-            <p class="fact-src">NYC Health Department heat mortality report</p>
-          </article>
-          <article class="fact">
-            <p class="fact-num">~400,000</p>
-            <p class="fact-text">New Yorkers who live in today's 100-year floodplain.</p>
-            <p class="fact-src">NYC Mayor's Office of Climate &amp; Environmental Justice</p>
-          </article>
-        </div>
-
-        <div class="slr-panel">
-          <div class="slr-copy">
-            <h3>How high will the water get?</h3>
-            <p>
-              Projected sea level rise for New York City, compared with the early 2000s. Higher seas mean today's harmless
-              high tides become routine flooding, and every storm surge starts from a higher baseline.
-            </p>
-            <button type="button" class="btn btn-primary" id="try-slr">
-              <svg class="icon" aria-hidden="true"><use href="#i-play" /></svg> Try it in the Time Machine
-            </button>
+      <!-- 3. Pinned "who's exposed": the camera visits the worst-hit neighborhoods -->
+      <section class="chapter chapter-exposed" id="exposed" aria-labelledby="exposed-title">
+        <div class="pin">
+          <div class="side">
+            <p class="label" id="exposed-kicker">Who's exposed</p>
+            <h2 class="h2" id="exposed-title">The same heat is not equally dangerous everywhere</h2>
+            <p class="dek" id="exposed-dek"></p>
+            <ol class="stops" id="stops"></ol>
+            <p class="modeled" id="exposed-note"></p>
           </div>
+          <div class="annotation" id="annotation" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <!-- 4. Release: the everyday app. No scroll effects from here on. -->
+      <section class="app" id="app" aria-labelledby="app-title">
+        <header class="app-head">
+          <div class="app-figure">
+            <p class="label" id="app-kicker">Right now · Heat</p>
+            <p class="mega mega-app" id="app-mega"><span class="mega-num">—</span><span class="mega-unit"></span></p>
+            <p class="mega-label" id="app-mega-label"></p>
+          </div>
+          <div class="app-summary">
+            <h2 class="h2" id="app-title">Checking conditions across the city…</h2>
+            <p class="dek" id="app-dek"></p>
+            <p class="note context" id="app-context"></p>
+            <div class="modes">
+              <p class="label" id="mode-label">Showing</p>
+              <div class="mode-list" id="mode-list" role="radiogroup" aria-labelledby="mode-label"></div>
+            </div>
+            <div class="slr" id="slr" hidden>
+              <p class="label" id="slr-label">Sea level</p>
+              <div class="mode-list" id="slr-list" role="radiogroup" aria-labelledby="slr-label"></div>
+              <p class="note" id="slr-note"></p>
+            </div>
+          </div>
+        </header>
+
+        <form class="address address-inline" id="address-form-2" role="search" autocomplete="off">
+          <label class="label" for="address-input-2">Check an address</label>
+          <div class="address-row">
+            <input id="address-input-2" type="search" placeholder="Any address in the five boroughs" />
+            <button type="submit">Check</button>
+          </div>
+          <div class="address-results" id="address-results-2"></div>
+        </form>
+        <div id="report" class="report-wrap" aria-live="polite"></div>
+
+        <div class="map-bar">
+          <div class="legend" id="legend"></div>
+          <fieldset class="layers" id="layers">
+            <legend class="label">Map layers</legend>
+          </fieldset>
+        </div>
+        <div class="map" id="map" role="region" aria-label="Map of neighborhood risk. The table below lists the same information."></div>
+
+        <div class="app-grid">
+          <section class="ranking" aria-labelledby="ranking-title">
+            <h3 class="h3" id="ranking-title">Neighborhoods</h3>
+            <p class="note" id="ranking-note"></p>
+            <table class="table" id="ranking">
+              <thead>
+                <tr><th scope="col" class="num">#</th><th scope="col">Neighborhood</th><th scope="col">Risk</th><th scope="col" class="num">Score</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+            <button type="button" class="more" id="ranking-more">Show all neighborhoods</button>
+          </section>
+          <aside class="details" id="details" aria-label="Forecast and alerts"></aside>
+        </div>
+      </section>
+
+      <section class="essay" id="ready" aria-labelledby="ready-title">
+        <p class="label">Be ready</p>
+        <h2 class="h2" id="ready-title">What to do before it happens</h2>
+        <p class="dek">Small steps that save lives in New York's most common disasters. Check off what you've done; it stays in this browser only.</p>
+        <p class="progress" id="prep-progress" aria-live="polite"></p>
+        <div class="prep-nav" id="prep-tabs" role="tablist" aria-label="Checklist by hazard"></div>
+        <ul class="checklist" id="checklist" role="tabpanel"></ul>
+      </section>
+
+      <section class="essay" id="method" aria-labelledby="method-title">
+        <p class="label">How it works</p>
+        <h2 class="h2" id="method-title">Public data in, a plain-language risk level out</h2>
+        <div class="method-body">
+          <p>
+            Every 15 minutes DrainWatch reads tide gauges, forecasts, weather alerts and 311 reports from free government and open-data sources. No API keys, no tracking.
+            For each hazard, a short, tested set of rules scores <em>how bad conditions will get</em> and scales it by <em>how exposed each neighborhood is</em>,
+            then names the result: Low, Elevated, High or Severe.
+          </p>
+          <p class="formula">risk = hazard (0–4) × exposure + alerts</p>
+          <div id="methodology" class="method-list"></div>
+          <h3 class="h3">Sea level rise, projected for New York</h3>
           <figure class="slr-figure">
             <div id="slr-chart"></div>
-            <figcaption>Bars: likely range (25th–75th percentile). Dot: high-end estimate (90th percentile). Source: NPCC 2019.</figcaption>
+            <figcaption class="note">Bars: likely range (25th–75th percentile). Ring: high-end estimate (90th percentile). Inches above the 2000–2004 average. Source: NYC Panel on Climate Change, 2019.</figcaption>
             <div class="sr-only">
-            <table id="slr-table">
-              <caption>Projected sea level rise, NYC, inches above 2000–2004</caption>
-              <thead>
-                <tr><th scope="col">Period</th><th scope="col">Likely range</th><th scope="col">High-end</th></tr>
-              </thead>
-              <tbody id="slr-body"></tbody>
-            </table>
+              <table>
+                <caption>Projected sea level rise, NYC, inches above 2000–2004</caption>
+                <thead><tr><th scope="col">Period</th><th scope="col">Likely range</th><th scope="col">High-end</th></tr></thead>
+                <tbody id="slr-body"></tbody>
+              </table>
             </div>
           </figure>
+          <h3 class="h3">Sources</h3>
+          <ul class="sources" id="sources"></ul>
+          <details class="story-data">
+            <summary>The replay's numbers, hour by hour</summary>
+            <div id="story-table"></div>
+          </details>
+          <p class="disclaimer">
+            <strong>DrainWatch is an educational tool, not an official warning system.</strong> In an emergency follow
+            <a href="https://www.nyc.gov/notifynyc" target="_blank" rel="noopener">Notify NYC</a> and the
+            <a href="https://www.weather.gov/okx/" target="_blank" rel="noopener">National Weather Service</a>, and call 911 if you are in danger.
+          </p>
         </div>
-      </div>
-    </section>
-
-    <section class="story story-alt" id="prepare" aria-labelledby="prepare-title">
-      <div class="story-inner">
-        <p class="kicker">Be ready</p>
-        <div class="prepare-head">
-          <div>
-            <h2 id="prepare-title" class="story-title">Your preparedness checklist</h2>
-            <p class="story-lede">Small steps that save lives in New York's most common disasters. Your progress is saved in this browser.</p>
-          </div>
-          <div class="prep-progress" id="prep-progress" aria-live="polite"></div>
-        </div>
-        <div class="prep-tabs" role="tablist" aria-label="Checklist by hazard" id="prep-tabs"></div>
-        <ul class="checklist" id="checklist" role="tabpanel"></ul>
-      </div>
-    </section>
-
-    <section class="story" id="how" aria-labelledby="how-title">
-      <div class="story-inner">
-        <p class="kicker">How it works</p>
-        <h2 id="how-title" class="story-title">From public data to a risk level you can act on</h2>
-        <ol class="pipeline">
-          <li class="step">
-            <span class="step-num">1</span>
-            <h3>Live public data</h3>
-            <p>Every 15 minutes DrainWatch pulls tides, forecasts, alerts and 311 reports from free government and open-data sources. No API keys, no tracking.</p>
-            <ul class="sources" id="source-status"></ul>
-          </li>
-          <li class="step">
-            <span class="step-num">2</span>
-            <h3>A transparent risk model</h3>
-            <p>Each hazard gets a 0–4 score: <strong>how bad conditions will get</strong>, scaled by <strong>how exposed each neighborhood is</strong>. The rules are short, documented and covered by automated tests.</p>
-            <div class="formula" aria-label="Score equals hazard times exposure">
-              <span class="f-chip">Hazard <small>0–4</small></span>
-              <span class="f-op">×</span>
-              <span class="f-chip">Exposure <small>by neighborhood</small></span>
-              <span class="f-op">+</span>
-              <span class="f-chip">Alerts &amp; reports</span>
-            </div>
-          </li>
-          <li class="step">
-            <span class="step-num">3</span>
-            <h3>Answers for your block</h3>
-            <p>39 neighborhoods are rated Low, Elevated, High or Severe for the next 48 hours, and any address gets a report card for all four hazards.</p>
-            <div class="level-scale" id="level-scale"></div>
-          </li>
-        </ol>
-
-        <div class="method" id="methodology"></div>
-
-        <p class="disclaimer">
-          <svg class="icon" aria-hidden="true"><use href="#i-shield" /></svg>
-          <span><strong>DrainWatch is an educational tool, not an official warning system.</strong> In an emergency, follow
-          <a href="https://www.nyc.gov/notifynyc" target="_blank" rel="noopener">Notify NYC</a> and the
-          <a href="https://www.weather.gov/okx/" target="_blank" rel="noopener">National Weather Service</a>, and call 911 if you are in danger.</span>
-        </p>
-      </div>
-    </section>
+      </section>
+    </main>
 
     <footer class="footer">
-      <div class="footer-inner">
-        <div class="brand brand-footer">
-          <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
-            <rect width="32" height="32" rx="9" class="logo-bg" />
-            <path class="logo-drop" d="M16 5c-4.4 6.4-7.5 10.6-7.5 14.2a7.5 7.5 0 0 0 15 0C23.5 15.6 20.4 11.4 16 5z" />
-            <path class="logo-wave" d="M10 21c2 1.4 4 1.4 6 0s4-1.4 6 0" />
-          </svg>
-          <span class="brand-text">
-            <span class="brand-name">DrainWatch</span>
-            <span class="brand-tag">Built for New Yorkers, for the Congressional App Challenge</span>
-          </span>
-        </div>
-        <nav class="footer-links" aria-label="Footer">
-          <a href="#dashboard">Dashboard</a>
-          <a href="#why">Why it matters</a>
-          <a href="#prepare">Be ready</a>
-          <a href="#how">How it works</a>
-          <a href="https://github.com/sonamt17/drainwatch" target="_blank" rel="noopener">Source code</a>
-        </nav>
-        <p class="footer-note">Data: NOAA, National Weather Service, Open-Meteo, NYC Open Data, FEMA, NYC Planning Labs. Map © OpenStreetMap contributors © CARTO.</p>
-      </div>
+      <p class="wordmark">DrainWatch</p>
+      <p>Built for New Yorkers, for the Congressional App Challenge. Data from NOAA, the National Weather Service, Open-Meteo, NYC Open Data, FEMA, USGS and the NYC Health Department.
+        Map © OpenStreetMap contributors © CARTO. <a href="https://github.com/sonamt17/drainwatch" target="_blank" rel="noopener">Source code</a>.</p>
     </footer>
 
     <div id="chart-tip" class="chart-tip" role="presentation" hidden></div>
 
     <script src="vendor/leaflet/leaflet.js"></script>
+    <script src="vendor/gsap/gsap.min.js" defer></script>
+    <script src="vendor/gsap/ScrollTrigger.min.js" defer></script>
     <script type="module" src="js/app.js"></script>
   </body>
 </html>

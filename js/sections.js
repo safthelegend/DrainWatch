@@ -1,12 +1,13 @@
-// The sections below the dashboard: the sea level rise chart, the preparedness
-// checklist (saved in this browser only) and the methodology notes.
+// The essays below the app: the preparedness checklist (saved in this browser
+// only), the methodology, the sea level chart, the source list and the replay's
+// numbers as a plain table.
 
 import { SEA_LEVEL_PROJECTIONS } from './config.js';
-import { LEVELS } from './risk.js';
 import { HAZARDS, HAZARD_ORDER } from './hazards.js';
 import { CHECKLIST, METHODOLOGY } from './content.js';
-import { ringSvg, seaLevelChartSvg } from './charts.js';
-import { esc, icon } from './ui.js';
+import { seaLevelChartSvg } from './charts.js';
+import { storyTime } from './story/stories.js';
+import { esc } from './ui.js';
 
 const STORE_KEY = 'drainwatch-checklist';
 
@@ -17,17 +18,36 @@ export function renderSeaLevel() {
   ).join('');
 }
 
-export function renderMethodology() {
+export function renderMethodology(open = 'heat') {
   document.getElementById('methodology').innerHTML = HAZARD_ORDER.map(
-    (h, i) => `<details data-hazard="${h}"${i === 0 ? ' open' : ''}>
-      <summary>${icon(h)}${esc(METHODOLOGY[h].title)}</summary>
+    (h) => `<details data-hazard="${h}"${h === open ? ' open' : ''}>
+      <summary>${esc(METHODOLOGY[h].title)}</summary>
       <div>${METHODOLOGY[h].html}</div>
     </details>`,
   ).join('');
-  const ranges = ['0–1', '1–2', '2–3', '3–4'];
-  document.getElementById('level-scale').innerHTML = LEVELS.map(
-    (l, i) => `<div class="lvl-${l.level}">${l.label}<small>score ${ranges[i]}</small></div>`,
-  ).join('');
+}
+
+export function renderSources(sources, status) {
+  document.getElementById('sources').innerHTML = Object.entries(sources)
+    .map(([key, s]) => {
+      const st = status[key];
+      const note = !st ? 'used on demand' : st.ok ? (st.message ? `partial: ${st.message}` : 'live') : st.message || 'offline';
+      return `<li><a href="${s.url}" target="_blank" rel="noopener">${esc(s.name)}</a><span class="st">${esc(note)}</span></li>`;
+    })
+    .join('');
+}
+
+/** Every number the 3D story shows, as a table (every third hour). */
+export function renderStoryTable(story) {
+  const rows = story.time
+    .map((t, k) => ({ t, k }))
+    .filter(({ k }) => k % 3 === 0 || k === story.peak.index)
+    .map(({ t, k }) => `<tr><td>${esc(storyTime(t))}</td><td class="num">${story.hazard === 'floods' ? story.citywide[k].toFixed(1) : Math.round(story.citywide[k])}${esc(story.unit)}</td></tr>`)
+    .join('');
+  const what = { heat: 'Highest heat index in any rated neighborhood', floods: 'Water level at the Battery, above normal high tide', air: 'Highest Air Quality Index in any rated neighborhood', wind: 'Strongest gust in any rated neighborhood' }[story.hazard];
+  document.getElementById('story-table').innerHTML = `<table class="table">
+    <caption class="note" style="text-align:left;padding:4px 0 10px">${esc(story.scenarioMeta.name)}, ${esc(story.scenarioMeta.date)}. ${esc(what)}.</caption>
+    <thead><tr><th scope="col">Hour</th><th scope="col" class="num">Value</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // ---------------- checklist ----------------
@@ -48,29 +68,25 @@ function saveChecked(set) {
   }
 }
 
-export function initChecklist(initialHazard = 'floods') {
+export function initChecklist(initialHazard = 'heat') {
   const checked = loadChecked();
   let active = initialHazard;
   const tabs = document.getElementById('prep-tabs');
   const list = document.getElementById('checklist');
   const progress = document.getElementById('prep-progress');
-
   const total = HAZARD_ORDER.reduce((n, h) => n + CHECKLIST[h].length, 0);
   const doneIn = (h) => CHECKLIST[h].filter((item) => checked.has(`${h}:${item.id}`)).length;
 
   function renderTabs() {
     tabs.innerHTML = HAZARD_ORDER.map(
-      (h) => `<button type="button" class="prep-tab" role="tab" id="prep-tab-${h}" data-hazard="${h}" aria-selected="${h === active}" tabindex="${h === active ? 0 : -1}" aria-controls="checklist">
-        ${icon(h)}${esc(HAZARDS[h].label)} <small>${doneIn(h)}/${CHECKLIST[h].length}</small>
-      </button>`,
+      (h) => `<button type="button" role="tab" id="prep-tab-${h}" data-hazard="${h}" aria-selected="${h === active}" tabindex="${h === active ? 0 : -1}" aria-controls="checklist">${esc(HAZARDS[h].label)}<small>${doneIn(h)}/${CHECKLIST[h].length}</small></button>`,
     ).join('');
     list.setAttribute('aria-labelledby', `prep-tab-${active}`);
   }
 
   function renderProgress() {
     const done = HAZARD_ORDER.reduce((n, h) => n + doneIn(h), 0);
-    const msg = done === total ? 'You are ready. Share this with a neighbor.' : done === 0 ? 'Check off what you have already done.' : 'Keep going: every step counts.';
-    progress.innerHTML = `${ringSvg(done, total)}<div><strong>${done} of ${total} steps</strong><span>${msg}</span></div>`;
+    progress.innerHTML = `<b>${done}</b> of ${total} steps done${done === total ? '. You are ready; share this with a neighbor.' : '.'}`;
   }
 
   function renderList() {
@@ -79,10 +95,8 @@ export function initChecklist(initialHazard = 'floods') {
         const key = `${active}:${item.id}`;
         return `<li><label class="check">
           <input type="checkbox" data-key="${key}"${checked.has(key) ? ' checked' : ''} />
-          <span class="check-box">${icon('check')}</span>
-          <span class="check-text"><strong>${esc(item.title)}</strong><span>${esc(item.text)}</span>
-            ${item.link ? `<a href="${item.link.href}" target="_blank" rel="noopener">${esc(item.link.label)}${icon('external')}</a>` : ''}
-          </span>
+          <span><strong>${esc(item.title)}</strong><span>${esc(item.text)}</span>
+            ${item.link ? `<a href="${item.link.href}" target="_blank" rel="noopener">${esc(item.link.label)} ↗</a>` : ''}</span>
         </label></li>`;
       })
       .join('');
@@ -96,7 +110,7 @@ export function initChecklist(initialHazard = 'floods') {
   }
 
   tabs.addEventListener('click', (e) => {
-    const b = e.target.closest('.prep-tab');
+    const b = e.target.closest('button[data-hazard]');
     if (b) select(b.dataset.hazard);
   });
   tabs.addEventListener('keydown', (e) => {

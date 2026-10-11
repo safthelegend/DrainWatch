@@ -1,170 +1,177 @@
-# DrainWatch NYC
+# DrainWatch
 
-**Live climate risk for every New York City neighborhood: floods, heat, air quality, wind and storms.**
+**How climate risk hits New York City, block by block, and what it looks like at your address right now.**
 
-DrainWatch turns free public data from NOAA, the National Weather Service, Open-Meteo, NYC 311 and FEMA into a
-plain-language risk level (Low, Elevated, High or Severe) for 39 neighborhoods and any NYC address. Its
-**Climate Time Machine** replays real disasters (Hurricane Sandy, Hurricane Ida, the 2019 heat wave and the 2023
-wildfire smoke) through the same model, and raises the sea to show what climate change does to an ordinary high tide.
+DrainWatch tells the story of four real New York disasters in a scroll-driven 3D city: the July 2019 heat
+wave, Hurricane Sandy, the 2023 wildfire smoke and Tropical Storm Isaias. Then it hands you a fast, live app:
+type any address and get its flood, heat, air quality and wind risk for the next 48 hours, from free public data.
 
-![DrainWatch replaying Hurricane Ida](docs/screenshots/ida-replay.webp)
+![The heat wave story: 106°F, with the 3D city on the right](docs/screenshots/heat-hero.jpg)
 
 ## Why it exists
 
-Climate change is already hitting New York, but it does not hit every block the same way. Ida's record rainfall
-drowned people in basement apartments in inland Queens, far from the coast. Sandy's storm surge flooded the
-Rockaways and Lower Manhattan. Heat kills more New Yorkers than any other kind of weather, mostly in neighborhoods
-with fewer trees and less air conditioning. The data to see this coming is public, but it is spread across a
-dozen agencies and written for experts. DrainWatch puts it in one place, in plain English, for the block you live on.
+Climate change is already here, but it does not hit every block the same way. Ida's record rain drowned people in
+basement apartments in inland Queens. Sandy's surge flooded the Rockaways and Lower Manhattan. Heat kills more New
+Yorkers than any other weather, mostly in neighborhoods with fewer trees and less air conditioning. The data to see
+this is public, but it is scattered across a dozen agencies and written for experts. DrainWatch puts it in one place,
+in plain English, for the block you live on.
 
-## What it does
+## What's on the page
 
-| Feature | What you get |
-| --- | --- |
-| **Four hazard tabs** | Floods, Heat, Air quality, and Wind & storms. Each has a citywide risk gauge, key numbers, NWS alerts, a 48-hour chart and a ranked list of neighborhoods. |
-| **Risk map** | 39 neighborhoods colored by risk level, the worst ones pulsing. The flood tab adds tide gauges, 311 street-flooding reports and FEMA flood zones. |
-| **Address report card** | Search any address (or click the map) for one card covering all four hazards, using the FEMA flood zone and a year of 311 flooding reports for that exact spot. |
-| **Climate Time Machine** | Replay Hurricane Sandy (2012), Hurricane Ida (2021), the July 2019 heat wave, Tropical Storm Isaias (2020) and the June 2023 wildfire smoke. Drag the sea level slider to the 2050s, 2080s or 2100 to see today's high tides turn into floods. |
-| **Be ready** | A preparedness checklist for each hazard (evacuation zones, basement apartments, cooling, N95s, power outages), with progress saved in your browser. |
-| **How it works** | Every rule of the risk model, the data sources and their live status, on the page. |
+1. **The headline.** One big number from a real event (106°F feels-like during the 2019 heat wave), and the address
+   search right under it. If any hazard is High or Severe *today*, the page leads with live conditions instead.
+2. **The timeline** (pinned, scroll to scrub). Scrolling moves hour by hour through the event. Neighborhoods rise and
+   recolor with the heat index, AQI or wind gusts; the sun moves to its real position for each hour, so the sky goes
+   dark while the city stays red. In the flood story the harbor rises over USGS elevation data to the water level
+   NOAA measured, then rises again by the sea level projected for the 2080s.
+3. **Who's exposed** (pinned, three steps). The camera visits the hardest-hit neighborhoods. Each stop is anchored to
+   its place in 3D, with its risk level and the reasons, such as heat vulnerability or asthma burden.
+4. **The app.** No scroll effects from here on: a full-width map of the city's neighborhoods, an address report card for
+   all four hazards, NWS alerts, 48-hour forecast charts, a ranked table, sea level rise scenarios, and a
+   preparedness checklist.
 
-Every view has its own link, so you can share one directly: `#floods/ida`, `#heat/heat-2019` or `#floods/live/2080s`.
+| Hazard | Story | 3D shows |
+| --- | --- | --- |
+| Heat | July 2019 heat wave, 72 hours | Heat index per neighborhood, sun and sky for each hour |
+| Floods | Hurricane Sandy, October 29, 2012 | The harbor rising over real terrain; flooded land shaded by depth |
+| Air quality | Canadian wildfire smoke, June 7, 2023 | AQI per neighborhood; haze thickens with the smoke |
+| Wind & storms | Tropical Storm Isaias, August 4, 2020 | Peak gusts per neighborhood |
 
 <p>
-  <img src="docs/screenshots/heat-dark.webp" alt="Heat tab in dark mode replaying the July 2019 heat wave" width="49%" />
-  <img src="docs/screenshots/sandy-2100.webp" alt="Hurricane Sandy replayed with 2100 sea level rise" width="49%" />
+  <img src="docs/screenshots/heat-night.jpg" alt="At 5 a.m. the sky is dark but the city still glows red" width="49%" />
+  <img src="docs/screenshots/sandy-dark.jpg" alt="Sandy's storm tide over real elevation, dark mode" width="49%" />
 </p>
-<p align="center"><img src="docs/screenshots/mobile.webp" alt="DrainWatch on a phone" width="300" /></p>
+<p>
+  <img src="docs/screenshots/exposed.jpg" alt="Who's exposed: East Harlem, anchored annotation" width="49%" />
+  <img src="docs/screenshots/app.jpg" alt="The app: risk by neighborhood, address check and map" width="49%" />
+</p>
 
 ## Run it
 
-It's plain **HTML, CSS and JavaScript**: no build step, no framework, no API keys. You only need Python 3, which
-most Macs and Linux machines already have.
+Plain **HTML, CSS and JavaScript**: no build step, no framework, no API keys. You need Python 3.
 
 ```bash
 cd DrainWatch
 python3 -m http.server 8000
 ```
 
-Open <http://localhost:8000>. Press `Ctrl+C` to stop the server.
+Open <http://localhost:8000>. Useful links: `#floods`, `#air/smoke-2023`, `#floods/live/2080s`. Add `?stills` to see the
+no-WebGL fallback.
 
-> Why not double-click `index.html`? The JavaScript uses ES modules (`import`), and browsers block those for files
-> opened straight from disk. The small Python server fixes that.
-
-No internet? The page says the live feeds are offline and offers a historical replay, which runs entirely from
-local code. That makes it a reliable demo.
+> Why a server? The JavaScript uses ES modules, which browsers block for files opened straight from disk.
 
 ## Tests
-
-With [Node.js](https://nodejs.org/) 18 or newer:
 
 ```bash
 node --test
 ```
 
-The suite covers the four risk models (checked against the NWS heat index chart, the EPA AQI breakpoints, and NWS
-wind and flood criteria), every historical replay, sea level rise, and the data layer (with a fake `fetch`, so no
-network is needed). GitHub Actions runs it on every push.
+57 tests cover the four risk models (against the NWS heat index chart, the EPA AQI breakpoints, and NWS wind and
+flood criteria), every replay, sea level rise, the story's camera paths, the sun's position, the data layer (with a
+fake `fetch`), and that the 3D colors match the CSS. GitHub Actions runs them on every push.
 
-## How the risk level is calculated
+## How it's built
 
-Each hazard follows the same pattern, so the model is easy to explain and to test:
+- **No build step.** ES modules and an import map. Three.js (a tree-shaken 587 KB bundle) and GSAP ScrollTrigger are
+  vendored in `vendor/`; Leaflet draws the app's map.
+- **3D from real data, not decoration.** The city is NYC's 195 Neighborhood Tabulation Areas (NYC City Planning, via
+  the NYC Health Department), projected with Mercator and extruded. The flood story uses a heightmap baked from
+  USGS 3DEP elevation (`data/nyc-elevation.png`). Light follows the real sun position for each replayed hour.
+- **Values for every neighborhood.** DrainWatch models 39 neighborhoods. In 3D, physical values (heat index, AQI,
+  gusts) are blended across all 195 with inverse-distance weighting, and the page says so. Risk ratings, which depend
+  on vulnerability, appear only for the 39 rated places.
+- **Scroll that respects the reader.** Sections are pinned with CSS `position: sticky`; ScrollTrigger reports
+  progress, and the camera eases toward it. Scroll speed is never changed, and nothing snaps.
+- **One canvas, loaded late.** The 3D stage loads after first paint, the address search works before it, and the
+  canvas stops drawing once the app section is on screen. Pixel ratio is capped at 2; bloom is off on phones.
+- **Fallbacks.** Without WebGL, with data saver on, or on low-memory devices, the story shows pre-rendered stills
+  (`assets/stills/`). With reduced motion there are no camera flights or drift; each step cross-fades instead.
+- **Every fact is text.** The beats, the annotations, the readout and an hour-by-hour table are real HTML.
+
+## The risk model
 
 > **score (0–4) = how bad conditions will get (hazard 0–4) × how exposed the neighborhood is, plus NWS alerts**
 
-| Score | Level |
-| --- | --- |
-| 0–1 | Low |
-| 1–2 | Elevated |
-| 2–3 | High |
-| 3–4 | Severe |
+| Score | 0–1 | 1–2 | 2–3 | 3–4 |
+| --- | --- | --- | --- | --- |
+| Level | Low | Elevated | High | Severe |
 
-| Hazard | Hazard from live data | Neighborhood exposure |
+| Hazard | Hazard from live data | Exposure |
 | --- | --- | --- |
-| **Floods** ([`js/risk.js`](js/risk.js)) | Peak water level (NOAA tide + current storm surge) vs. NOAA's minor/moderate/major flood thresholds. Peak hourly rain vs. NYC's ~1.75 in/hr sewer capacity. | Coastal and stormwater exposure (0–3) from FEMA flood maps, NYC DEP stormwater maps, and Sandy and Ida damage. Address checks use the real FEMA zone and 311 history. |
-| **Heat** ([`js/heat-risk.js`](js/heat-risk.js)) | Peak NWS heat index (Rothfusz regression) at 80/90/100/105°F, plus warm nights (lows of 75°F+). | NYC Heat Vulnerability Index (1–5): surface temperature, green space, air conditioning, income and structural racism. |
-| **Air quality** ([`js/air-risk.js`](js/air-risk.js)) | Peak US AQI over 48 h (EPA categories), with PM2.5 and ozone. | Neighborhoods with a heavy asthma burden move up half a step once the air is no longer Good. |
-| **Wind & storms** ([`js/storm-risk.js`](js/storm-risk.js)) | Peak gust vs. NWS Wind Advisory (46 mph), High Wind Warning (58 mph) and hurricane force (74 mph), plus thunderstorms. | Open shoreline ×1.2, waterfront or tree-lined ×1.0, sheltered ×0.8. |
+| **Floods** ([`js/risk.js`](js/risk.js)) | Peak water level (NOAA tide + current surge) vs. NOAA flood thresholds; peak hourly rain vs. ~1.75 in/hr sewer capacity | Coastal and stormwater exposure from FEMA and NYC DEP maps; address checks use the real FEMA zone and 311 history |
+| **Heat** ([`js/heat-risk.js`](js/heat-risk.js)) | Peak NWS heat index, plus warm nights | NYC Heat Vulnerability Index (1–5) |
+| **Air** ([`js/air-risk.js`](js/air-risk.js)) | Peak US AQI (EPA categories) | Asthma burden |
+| **Wind** ([`js/storm-risk.js`](js/storm-risk.js)) | Peak gust vs. NWS advisory (46 mph), warning (58) and hurricane force (74); thunderstorms | Shoreline and tree exposure |
 
-Neighborhood ratings are simplified summaries of public data, not official designations; see the comments in
-[`js/config.js`](js/config.js). **DrainWatch is an educational tool, not an official warning system.** In an
-emergency, follow [Notify NYC](https://www.nyc.gov/notifynyc) and the [National Weather Service](https://www.weather.gov/okx/).
-
-### About the replays
-
-Replays rebuild each storm's conditions as hourly data shaped exactly like the live APIs return, then run them
-through the same summaries and risk models ([`js/scenarios.js`](js/scenarios.js)). The numbers are approximate
-reconstructions from NOAA tide gauge records, NWS storm summaries and EPA AirNow reports, labeled as such on the page.
-Sea level rise uses the middle of the NYC Panel on Climate Change (NPCC 2019) likely range for each period.
+Neighborhood ratings are simplified summaries of public data, not official designations (see
+[`js/config.js`](js/config.js)). The replays are approximate reconstructions from NOAA, NWS and EPA records, run
+through today's model ([`js/scenarios.js`](js/scenarios.js)). **DrainWatch is an educational tool, not an official
+warning system.** In an emergency follow [Notify NYC](https://www.nyc.gov/notifynyc) and the
+[National Weather Service](https://www.weather.gov/okx/).
 
 ## Data sources
 
-**You don't need any API keys.** Every source is free and public:
+No API keys needed.
 
-| Source | What it gives us | Key needed? |
-| --- | --- | --- |
-| [NOAA Tides & Currents](https://api.tidesandcurrents.noaa.gov/api/prod/) | Water levels, tide predictions | No |
-| [Open-Meteo](https://open-meteo.com/) | Hourly rain, temperature, humidity, wind | No (free for non-commercial use) |
-| [Open-Meteo Air Quality](https://open-meteo.com/en/docs/air-quality-api) | US AQI, PM2.5, ozone | No |
-| [National Weather Service](https://www.weather.gov/documentation/services-web-api) | Active alerts | No |
-| [NYC Open Data: 311](https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9) | Street flooding and sewer backup reports | Optional "app token" |
-| [NYC GeoSearch](https://geosearch.planninglabs.nyc/) | Address lookup | No |
-| [FEMA National Flood Hazard Layer](https://hazards.fema.gov/femaportal/wps/portal/NFHLWMS) | Flood zones | No |
-| [NYC Open Data](https://data.cityofnewyork.us/): borough boundaries | Map outlines (NYC Department of City Planning, simplified, in `data/`) | No |
+| Source | Used for |
+| --- | --- |
+| [NOAA Tides & Currents](https://api.tidesandcurrents.noaa.gov/api/prod/) | Water levels, tide predictions |
+| [Open-Meteo](https://open-meteo.com/) and its [air quality API](https://open-meteo.com/en/docs/air-quality-api) | Rain, temperature, humidity, wind, AQI |
+| [National Weather Service](https://www.weather.gov/documentation/services-web-api) | Active alerts |
+| [NYC Open Data: 311](https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9) | Street flooding reports (optional free app token in `js/config.js`) |
+| [NYC GeoSearch](https://geosearch.planninglabs.nyc/) | Address lookup |
+| [FEMA National Flood Hazard Layer](https://hazards.fema.gov/femaportal/wps/portal/NFHLWMS) | Flood zones |
+| [NYC Health Department geography](https://github.com/nycehs/NYC_geography) (from NYC City Planning) | Neighborhood shapes |
+| [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (USGS 3DEP in the US) | Elevation for the flood story |
 
-### A quick primer on API keys
+## Scripts
 
-An **API** is a web address that returns data instead of a web page. Some APIs ask for an **API key**, a
-password-like string, so they know who is calling. Two rules of thumb:
+All optional; the site runs without them.
 
-1. **Secret keys must never go in front-end code** (HTML/JS/CSS). Anyone can open the page and read them. They belong on a server.
-2. **Some "keys" are designed to be public**, like NYC Open Data's app token. It only identifies your app for rate
-   limits, so it's fine in `js/config.js`.
+| Script | What it does |
+| --- | --- |
+| `scripts/build-geodata.mjs` | Rebuilds `data/nyc-ntas.geojson` and links each NTA to the rated neighborhoods |
+| `scripts/bake-elevation.mjs` | Bakes `data/nyc-elevation.png` from elevation tiles |
+| `scripts/import-heat-drivers.mjs` | Adds tree canopy and air conditioning to the heat annotations, from CSVs you download from the [NYC Environment & Health Data Portal](https://a816-dohbesp.nyc.gov/IndicatorPublic/) |
+| `scripts/render-stills.mjs` | Renders the fallback stills with headless Chromium |
+| `scripts/build-vendor.mjs` | Rebuilds the tree-shaken Three.js bundle |
 
-Without a token, NYC Open Data allows a limited number of requests per hour from each visitor, which is plenty for
-personal use. To add one, create a free account at <https://data.cityofnewyork.us/signup>, go to **Developer
-Settings → Create New App Token**, and paste the **App Token** (not the secret) into `js/config.js`:
+## Accessibility
 
-```js
-export const NYC_OPEN_DATA_APP_TOKEN = 'paste-your-token-here';
-```
+- Every risk level is a word as well as a color, and the color ramps were checked for color-vision deficiency.
+- The 3D canvas is decorative (`aria-hidden`); everything it shows is in the text, including an hour-by-hour table.
+- Reduced motion: no camera flights or drift. Keyboard: hazard links, replay and sea-level pickers, and the
+  checklist tabs all work with the keyboard; a skip link jumps straight to the address check.
+- Light and inverted dark themes, and layouts down to 360 px wide, where the text sits below the city instead of over it.
 
 ## Project layout
 
 ```
-index.html              page structure, icons and story sections
-css/style.css           design system: tokens, light + dark themes, responsive layout
-js/app.js               state, live loading, URL routing, rendering, address search
-js/config.js            39 neighborhoods with exposure ratings, tide stations, reference numbers
-js/risk.js              flood model + shared helpers            ┐
-js/heat-risk.js         heat index and heat model               │ pure functions,
-js/air-risk.js          AQI and air quality model               │ no network or DOM,
-js/storm-risk.js        wind and storm model                    │ fully tested
-js/hazards.js           runs a model across the city, builds headline + KPIs
-js/scenarios.js         Climate Time Machine: replays + sea level rise  ┘
-js/data.js              calls each public API and summarizes the response
-js/map.js               Leaflet map, borough outlines, pins and layers
-js/panels.js            sidebar cards, popups and the address report card
-js/charts.js            SVG gauge, hourly charts with hover, sea level chart
-js/tide-chart.js        tide chart with NOAA flood thresholds
-js/story.js             sea level section, preparedness checklist, methodology
-js/content.js           checklist and methodology text
-js/ui.js                small HTML helpers
-data/nyc-boroughs.geojson  simplified borough outlines (NYC Department of City Planning)
-vendor/leaflet/         Leaflet 1.9.4, bundled so the map never depends on a CDN
-tests/                  node --test suites
+index.html                 page: masthead, story sections, app, essays
+css/style.css              tokens (paper, ink, one data ramp per hazard), layout, both themes
+js/app.js                  state, live data, routing, hero, app section, address checks
+js/story/controller.js     scroll → camera pose, replay hour and story text
+js/story/stage.js          the Three.js scene (lazy-loaded)
+js/story/stories.js        the four stories; every number in the copy comes from data
+js/story/camera.js         camera poses and eased paths            ┐
+js/story/sun.js            solar position                          │ pure,
+js/story/geo.js            projection, point-in-polygon, IDW       │ tested
+js/story/palette.js        ramps and sky colors for the 3D scene   ┘
+js/risk.js, heat-risk.js, air-risk.js, storm-risk.js   the four risk models
+js/hazards.js              runs a model across the city: results, headline, numbers
+js/scenarios.js            replays and sea level rise
+js/data.js                 public APIs and their pure summarizers
+js/map.js, panels.js, charts.js, tide-chart.js, sections.js, content.js, ui.js
+data/                      neighborhood shapes and the elevation heightmap
+assets/stills/             fallback images for the story
+vendor/                    Three.js, GSAP, Leaflet
+scripts/                   data and asset builders
+tests/                     node --test suites
 ```
 
-## Accessibility
+## Next steps
 
-- Every risk level is shown as a word as well as a color, and the map has a full text equivalent (the ranked list).
-- Hazard tabs, replay picker and checklist tabs work with the arrow keys; a skip link jumps to the dashboard.
-- Charts have text summaries and a crosshair tooltip. The sea level chart has a data table for screen readers.
-- Light and dark themes (following your system setting, with a toggle), reduced-motion support, and layouts down to 360 px wide.
-
-## Ideas for next steps
-
-- Use NYC's official Stormwater Flood Map polygons instead of neighborhood ratings.
-- A small Python backend to cache API responses and send opt-in text alerts for a saved address.
+- Real tree canopy and air conditioning rates per neighborhood (run `scripts/import-heat-drivers.mjs`).
+- Building footprints for Manhattan context in 3D.
+- NYC's official Stormwater Flood Map polygons, and a small backend that caches API responses and sends opt-in alerts.
 - Translations into Spanish, Chinese, Russian, Bengali and other languages New Yorkers speak at home.
-- Add more historical replays, such as Hurricane Irene (2011) and the August 2023 Brooklyn flash floods.

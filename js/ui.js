@@ -6,14 +6,10 @@ export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
-export function icon(name, cls = 'icon') {
-  return `<svg class="${cls}" aria-hidden="true"><use href="#i-${name}" /></svg>`;
-}
-
-/** Level pill: a colored dot plus the level name, so color is never the only cue. */
-export function badge(level, text) {
-  if (!level || level === 'none') return `<span class="badge lvl-none">${esc(text || 'No data')}</span>`;
-  return `<span class="badge lvl-${level}">${esc(text || levelLabel(level))}</span>`;
+/** A risk level: a small square in the hazard's ramp plus the word, never color alone. */
+export function level(lvl, text) {
+  if (!lvl || lvl === 'none') return `<span class="level lvl-none">${esc(text || 'No data')}</span>`;
+  return `<span class="level lvl-${lvl}"><span class="swatch"></span>${esc(text || levelLabel(lvl))}</span>`;
 }
 
 /** "Tue 3:00 PM" from an ISO or NOAA-style timestamp. */
@@ -30,12 +26,4 @@ export function exposureWord(n) {
 
 export function windExposureWord(n) {
   return { 1: 'Sheltered', 2: 'Waterfront or tree-lined', 3: 'Exposed shoreline' }[n] || '—';
-}
-
-export function stat(label, value, unit = '') {
-  return `<div><dt>${esc(label)}</dt><dd>${value}${unit ? ` <small>${esc(unit)}</small>` : ''}</dd></div>`;
-}
-
-export function empty(text, { error = false } = {}) {
-  return `<p class="empty${error ? ' is-error' : ''}">${icon(error ? 'alert' : 'check')}<span>${text}</span></p>`;
 }
