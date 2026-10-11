@@ -136,8 +136,8 @@ test('the 3D ramps match the CSS ramps, light and dark', async () => {
   const { RAMPS } = await import('../js/story/palette.js');
   const css = await readFile(new URL('../css/style.css', import.meta.url), 'utf8');
   for (const [hazard, { light, dark }] of Object.entries(RAMPS)) {
-    const lightRule = css.match(new RegExp(`^body\\[data-hazard='${hazard}'\\] \\{([^}]*)\\}`, 'm'))[1];
-    const darkRule = css.match(new RegExp(`:root\\[data-theme='dark'\\] body\\[data-hazard='${hazard}'\\] \\{([^}]*)\\}`))[1];
+    const lightRule = css.match(new RegExp(`^\\[data-hazard='${hazard}'\\] \\{([^}]*)\\}`, 'm'))[1];
+    const darkRule = css.match(new RegExp(`:root\\[data-theme='dark'\\] \\[data-hazard='${hazard}'\\] \\{([^}]*)\\}`))[1];
     const stops = (rule) => [0, 1, 2, 3, 4].map((i) => rule.match(new RegExp(`--r${i}: (#[0-9a-f]{6})`))[1]);
     assert.deepEqual(stops(lightRule), light, `${hazard} light`);
     assert.deepEqual(stops(darkRule), dark, `${hazard} dark`);

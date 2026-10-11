@@ -30,10 +30,10 @@
 }
 
 /* data ramps: r0 is the quiet end, r1–r4 are Low → Severe (validated for color vision deficiency) */
-body[data-hazard='heat'] { --r0: #f3dfb3; --r1: #d4842a; --r2: #d2602a; --r3: #bb3522; --r4: #7f1712; }
-body[data-hazard='floods'] { --r0: #cfe8f1; --r1: #5fb3d6; --r2: #2f86bf; --r3: #195a97; --r4: #0b2f5e; }
-body[data-hazard='air'] { --r0: #e4dcf2; --r1: #a48fd6; --r2: #7f5fc0; --r3: #5c3593; --r4: #3a1a60; }
-body[data-hazard='wind'] { --r0: #d5eee3; --r1: #5fb895; --r2: #2f8f6f; --r3: #1a6650; --r4: #0b4034; }
+[data-hazard='heat'] { --r0: #f3dfb3; --r1: #d4842a; --r2: #d2602a; --r3: #bb3522; --r4: #7f1712; }
+[data-hazard='floods'] { --r0: #cfe8f1; --r1: #5fb3d6; --r2: #2f86bf; --r3: #195a97; --r4: #0b2f5e; }
+[data-hazard='air'] { --r0: #e4dcf2; --r1: #a48fd6; --r2: #7f5fc0; --r3: #5c3593; --r4: #3a1a60; }
+[data-hazard='wind'] { --r0: #d5eee3; --r1: #5fb895; --r2: #2f8f6f; --r3: #1a6650; --r4: #0b4034; }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
@@ -49,10 +49,10 @@ body[data-hazard='wind'] { --r0: #d5eee3; --r1: #5fb895; --r2: #2f8f6f; --r3: #1
     --sky-horizon: #3a2a26;
     color-scheme: dark;
   }
-  :root:not([data-theme='light']) body[data-hazard='heat'] { --r0: #3a1d10; --r1: #8a3d1d; --r2: #c24a22; --r3: #ec6a2c; --r4: #ffb547; }
-  :root:not([data-theme='light']) body[data-hazard='floods'] { --r0: #10283c; --r1: #1d5a85; --r2: #2a83bd; --r3: #52b4e0; --r4: #b0ecf8; }
-  :root:not([data-theme='light']) body[data-hazard='air'] { --r0: #261a3f; --r1: #5a3d8f; --r2: #7d5cc0; --r3: #a587e0; --r4: #dccff7; }
-  :root:not([data-theme='light']) body[data-hazard='wind'] { --r0: #0f2c24; --r1: #1d6650; --r2: #2a8d6d; --r3: #4dbb92; --r4: #b0ecd0; }
+  :root:not([data-theme='light']) [data-hazard='heat'] { --r0: #3a1d10; --r1: #8a3d1d; --r2: #c24a22; --r3: #ec6a2c; --r4: #ffb547; }
+  :root:not([data-theme='light']) [data-hazard='floods'] { --r0: #10283c; --r1: #1d5a85; --r2: #2a83bd; --r3: #52b4e0; --r4: #b0ecf8; }
+  :root:not([data-theme='light']) [data-hazard='air'] { --r0: #261a3f; --r1: #5a3d8f; --r2: #7d5cc0; --r3: #a587e0; --r4: #dccff7; }
+  :root:not([data-theme='light']) [data-hazard='wind'] { --r0: #0f2c24; --r1: #1d6650; --r2: #2a8d6d; --r3: #4dbb92; --r4: #b0ecd0; }
 }
 :root[data-theme='dark'] {
   --paper: #0f0f0e;
@@ -67,10 +67,10 @@ body[data-hazard='wind'] { --r0: #d5eee3; --r1: #5fb895; --r2: #2f8f6f; --r3: #1
   --sky-horizon: #3a2a26;
   color-scheme: dark;
 }
-:root[data-theme='dark'] body[data-hazard='heat'] { --r0: #3a1d10; --r1: #8a3d1d; --r2: #c24a22; --r3: #ec6a2c; --r4: #ffb547; }
-:root[data-theme='dark'] body[data-hazard='floods'] { --r0: #10283c; --r1: #1d5a85; --r2: #2a83bd; --r3: #52b4e0; --r4: #b0ecf8; }
-:root[data-theme='dark'] body[data-hazard='air'] { --r0: #261a3f; --r1: #5a3d8f; --r2: #7d5cc0; --r3: #a587e0; --r4: #dccff7; }
-:root[data-theme='dark'] body[data-hazard='wind'] { --r0: #0f2c24; --r1: #1d6650; --r2: #2a8d6d; --r3: #4dbb92; --r4: #b0ecd0; }
+:root[data-theme='dark'] [data-hazard='heat'] { --r0: #3a1d10; --r1: #8a3d1d; --r2: #c24a22; --r3: #ec6a2c; --r4: #ffb547; }
+:root[data-theme='dark'] [data-hazard='floods'] { --r0: #10283c; --r1: #1d5a85; --r2: #2a83bd; --r3: #52b4e0; --r4: #b0ecf8; }
+:root[data-theme='dark'] [data-hazard='air'] { --r0: #261a3f; --r1: #5a3d8f; --r2: #7d5cc0; --r3: #a587e0; --r4: #dccff7; }
+:root[data-theme='dark'] [data-hazard='wind'] { --r0: #0f2c24; --r1: #1d6650; --r2: #2a8d6d; --r3: #4dbb92; --r4: #b0ecd0; }
 
 .lvl-low { --lvl: var(--r1); }
 .lvl-elevated { --lvl: var(--r2); }
@@ -326,7 +326,7 @@ body.no-stage #stage {
   grid-template-columns: repeat(12, minmax(0, 1fr));
   column-gap: 24px;
   align-content: start;
-  padding: clamp(28px, 6vh, 72px) var(--gutter) 0;
+  padding: clamp(28px, 6vh, 72px) var(--gutter) 84px;
 }
 .hero-text {
   grid-column: 1 / span 6;
@@ -1563,8 +1563,21 @@ body.no-stage #stage {
   .footer {
     grid-template-columns: 1fr;
   }
-  .table td.why {
+  .report .table thead {
     display: none;
+  }
+  .report .table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    border-bottom: 1px solid var(--rule);
+  }
+  .report .table td {
+    border-bottom: 0;
+  }
+  .report .table td.why {
+    grid-column: 1 / -1;
+    padding-top: 0;
+    font-size: 14px;
   }
 }
 

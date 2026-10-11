@@ -91,22 +91,31 @@ function headlineNumber(hazard, inputs, summary, replay = false) {
   };
   if (hazard === 'heat') {
     const v = max(inputs.weather, 'maxHeatIndex');
-    return v == null ? null : { value: Math.round(v), unit: '°F', label: replay ? 'feels like, at the peak' : 'feels like, at the peak of the next 48 hours' };
+    return v == null ? null : { value: Math.round(v), unit: '°F', label: replay ? 'feels like, at the peak' : 'feels like, at the peak of the next 48 hours', short: `feels like ${Math.round(v)}°F at the peak` };
   }
   if (hazard === 'air') {
     const v = max(inputs.air, 'peakAqi');
-    return v == null ? null : { value: Math.round(v), unit: '', label: `Air Quality Index at its peak, "${aqiCategory(v)}"` };
+    return v == null ? null : { value: Math.round(v), unit: '', label: `Air Quality Index at its peak, "${aqiCategory(v)}"`, short: `the AQI peaks at ${Math.round(v)}` };
   }
   if (hazard === 'wind') {
     const v = max(inputs.weather, 'maxGust');
-    return v == null ? null : { value: Math.round(v), unit: ' mph', label: `strongest gust${when}` };
+    return v == null ? null : { value: Math.round(v), unit: ' mph', label: `strongest gust${when}`, short: `gusts to ${Math.round(v)} mph` };
   }
   if (summary && summary.worst.driver === 'stormwater') {
     const v = max(inputs.weather, 'maxHourly');
-    return v == null ? null : { value: v.toFixed(2), unit: ' in/hr', label: `heaviest rain${when}` };
+    return v == null ? null : { value: v.toFixed(2), unit: ' in/hr', label: `heaviest rain${when}`, short: `rain up to ${v.toFixed(2)} in/hr` };
   }
   const v = max(Object.values(inputs.tides || {}), 'peak');
-  return v == null ? null : { value: v.toFixed(1), unit: ' ft', label: `highest water above normal high tide${replay ? '' : ', next 48 hours'}` };
+  return v == null ? null : { value: v.toFixed(1), unit: ' ft', label: `highest water above normal high tide${replay ? '' : ', next 48 hours'}`, short: `water up to ${v.toFixed(1)} ft above normal high tide` };
+}
+
+/** "Severe flood risk in 13 neighborhoods", or "… across the city" when it is everywhere. */
+function riskTitle(hazard, summary) {
+  const lvl = summary.worst.level;
+  const n = summary.counts[lvl];
+  const total = Object.values(summary.counts).reduce((a, b) => a + b, 0);
+  const where = lvl === 'low' || n === total ? 'across the city' : `in ${n} neighborhood${n === 1 ? '' : 's'}`;
+  return `${levelLabel(lvl)} ${HAZARDS[hazard].noun} risk ${where}`;
 }
 
 function setMega(el, num) {
@@ -127,7 +136,7 @@ function renderHero() {
     $('hero-kicker').textContent = `Right now · ${HAZARDS[h].label}`;
     setMega($('hero-mega'), num);
     $('hero-mega-label').textContent = num ? num.label : '';
-    $('hero-head').textContent = live.headline;
+    $('hero-head').textContent = `${riskTitle(h, live)}.`;
   } else {
     $('hero-kicker').textContent = `${story.hero.kicker} · Replay`;
     setMega($('hero-mega'), { value: story.mega, unit: story.hero.megaUnit });
@@ -138,9 +147,11 @@ function renderHero() {
   let line;
   if (!state.liveLoaded) line = 'Loading live conditions…';
   else if (!live) line = 'Live data is unavailable right now, so the story below runs on recorded data. Address checks still use the FEMA flood map when it answers.';
+  else if (leadLive) line = esc(live.headline);
   else {
     const num = headlineNumber(h, state.live, live);
-    line = `Right now: <b>${levelLabel(live.worst.level)}</b> ${esc(HAZARDS[h].noun)} risk across the city${num ? `; ${esc(String(num.value))}${esc(num.unit)} ${esc(num.label.split(',')[0])}` : ''}.`;
+    const [lvl, ...rest] = riskTitle(h, live).split(' ');
+    line = `Right now: <b>${esc(lvl)}</b> ${esc(rest.join(' '))}${num ? `; ${esc(num.short)}` : ''}.`;
   }
   $('live-line').innerHTML = line;
 
@@ -179,11 +190,7 @@ function renderApp() {
   let title;
   if (pending) title = 'Checking conditions across the city…';
   else if (!available) title = 'Live data is unavailable right now';
-  else if (summary.worst.level === 'low') title = `Low ${HAZARDS[h].noun} risk across the city`;
-  else {
-    const n = results.filter((r) => r.level === summary.worst.level).length;
-    title = `${levelLabel(summary.worst.level)} ${HAZARDS[h].noun} risk in ${n} neighborhood${n === 1 ? '' : 's'}`;
-  }
+  else title = riskTitle(h, summary);
   $('app-title').textContent = title;
   $('app-dek').innerHTML = pending
     ? ''

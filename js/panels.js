@@ -238,7 +238,7 @@ export function reportHtml(rep, currentHazard) {
     const r = rep.results[h];
     const ok = rep.available[h];
     const why = !r ? 'Checking…' : ok ? r.reasons[0] : 'Live data unavailable';
-    return `<tr${h === currentHazard ? ' class="here"' : ''}>
+    return `<tr data-hazard="${h}"${h === currentHazard ? ' class="here"' : ''}>
       <td class="name">${esc(HAZARDS[h].label)}</td>
       <td>${r ? level(ok ? r.level : 'none') : level('none', '…')}</td>
       <td class="why">${esc(why)}</td>

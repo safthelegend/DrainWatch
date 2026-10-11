@@ -385,6 +385,13 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
     // haze is set for a camera ~60 km out; pulled further back (phones), it moves back too
     state.fogScale = Math.max(1, pose.dist / 60);
     applyFog();
+    // keep depth precision where the city is: a far camera pushes its near plane out, so flat
+    // parks and the ground never z-fight
+    const near = Math.max(0.05, pose.dist * 0.02);
+    if (Math.abs(camera.near - near) > 1e-3) {
+      camera.near = near;
+      camera.updateProjectionMatrix();
+    }
     state.dirty = true;
   }
 
