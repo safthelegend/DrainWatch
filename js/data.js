@@ -1,17 +1,19 @@
 // Fetchers for the live, public data sources. None of these require an API key.
 //
 //   NOAA CO-OPS      – observed + predicted water levels (tides & storm surge)
-//   Open-Meteo       – hourly rainfall forecast
-//   NWS (weather.gov)– active flood / coastal / tropical alerts
+//   Open-Meteo       – hourly rain, temperature, humidity, wind and air quality forecasts
+//   NWS (weather.gov)– active alerts for NYC
 //   NYC Open Data    – 311 street flooding & sewer backup reports
 //   NYC GeoSearch    – address lookup
 //   FEMA NFHL        – flood zone at a point
 //
 // Every fetcher throws on failure; app.js catches per source so one outage
-// doesn't take down the whole dashboard.
+// doesn't take down the whole dashboard. The summarize* helpers are pure, so the
+// historical replays in scenarios.js run through exactly the same code.
 
 import { BOROUGH_SAME, NYC_OPEN_DATA_APP_TOKEN, TIDE_STATIONS } from './config.js';
-import { classifyAlert, peakWaterLevel, thresholdsFromGreatDiurnalRange } from './risk.js';
+import { heatIndexF } from './heat-risk.js';
+import { peakWaterLevel, thresholdsFromGreatDiurnalRange } from './risk.js';
 
 const NY_TZ = 'America/New_York';
 const FLOOD_311_WHERE = "complaint_type='Sewer' AND (descriptor like '%Flood%' OR descriptor like '%Backup%')";
@@ -123,18 +125,85 @@ export async function fetchTides(stationKey) {
   };
 }
 
-// ---------------- Open-Meteo rainfall ----------------
+// ---------------- Open-Meteo weather ----------------
+
+const WEATHER_VARS = ['precipitation', 'temperature_2m', 'relative_humidity_2m', 'wind_speed_10m', 'wind_gusts_10m', 'weather_code'];
+
+/** Index of the current hour in an hourly time axis ("2026-09-28T14:00" strings). */
+export function hourIndex(times, nowKey) {
+  let now = times.indexOf(nowKey);
+  if (now < 0) now = times.findIndex((t) => t > nowKey);
+  if (now < 0) now = times.length - 1;
+  return now;
+}
+
+function maxBy(rows, key) {
+  let best = null;
+  for (const r of rows) if (r[key] != null && (best == null || r[key] > best[key])) best = r;
+  return best;
+}
 
 /**
- * Hourly rainfall for many points in one request.
- * Returns one entry per point: { maxHourly, maxHourlyTime, next48Total, past24, hourly }.
+ * Boil an Open-Meteo hourly block down to what the risk models need for the
+ * next 48 hours: rain (peak rate, totals), heat (peak heat index, overnight low)
+ * and wind (peak gust and sustained speed, thunderstorm codes).
  */
-export async function fetchRainfall(points) {
+export function summarizeWeather(hourly, nowKey) {
+  const times = hourly.time;
+  const now = hourIndex(times, nowKey);
+  const at = (name, i) => (hourly[name] && hourly[name][i] != null ? hourly[name][i] : null);
+  const rows = [];
+  for (let i = now; i < Math.min(times.length, now + 48); i++) {
+    const temp = at('temperature_2m', i);
+    const rh = at('relative_humidity_2m', i);
+    rows.push({
+      t: times[i],
+      precip: at('precipitation', i) ?? 0,
+      temp,
+      rh,
+      hi: temp != null && rh != null ? heatIndexF(temp, rh) : null,
+      wind: at('wind_speed_10m', i),
+      gust: at('wind_gusts_10m', i),
+      code: at('weather_code', i),
+    });
+  }
+  let past24 = 0;
+  for (let i = Math.max(0, now - 24); i < now; i++) past24 += at('precipitation', i) ?? 0;
+
+  const rain = maxBy(rows, 'precip');
+  const heat = maxBy(rows, 'hi');
+  const gust = maxBy(rows, 'gust');
+  const wind = maxBy(rows, 'wind');
+  const hot = maxBy(rows, 'temp');
+  const nights = rows.filter((r) => r.temp != null && +r.t.slice(11, 13) <= 7);
+  const lows = (nights.length ? nights : rows.filter((r) => r.temp != null)).map((r) => r.temp);
+
+  return {
+    hourly: rows,
+    maxHourly: rain && rain.precip > 0 ? round2(rain.precip) : 0,
+    maxHourlyTime: rain && rain.precip > 0 ? rain.t : null,
+    next48Total: round2(rows.reduce((s, r) => s + r.precip, 0)),
+    past24: round2(past24),
+    maxHeatIndex: heat ? heat.hi : null,
+    maxHeatIndexTime: heat ? heat.t : null,
+    maxTemp: hot ? hot.temp : null,
+    overnightLow: lows.length ? Math.min(...lows) : null,
+    maxGust: gust ? gust.gust : null,
+    maxGustTime: gust ? gust.t : null,
+    maxWind: wind ? wind.wind : null,
+    weatherCodes: [...new Set(rows.map((r) => r.code).filter((c) => c != null))],
+  };
+}
+
+/** Next 48 h of weather for many points in one request, one summary per point. */
+export async function fetchWeather(points) {
   const q = new URLSearchParams({
     latitude: points.map((p) => p.lat.toFixed(4)).join(','),
     longitude: points.map((p) => p.lon.toFixed(4)).join(','),
-    hourly: 'precipitation',
+    hourly: WEATHER_VARS.join(','),
     precipitation_unit: 'inch',
+    temperature_unit: 'fahrenheit',
+    wind_speed_unit: 'mph',
     timezone: NY_TZ,
     past_days: '1',
     forecast_days: '3',
@@ -142,57 +211,76 @@ export async function fetchRainfall(points) {
   const json = await fetchJson(`https://api.open-meteo.com/v1/forecast?${q}`);
   const list = Array.isArray(json) ? json : [json];
   const nowKey = nyHourKey();
+  return list.map((loc) => summarizeWeather(loc.hourly, nowKey));
+}
 
-  return list.map((loc) => {
-    const times = loc.hourly.time;
-    const values = loc.hourly.precipitation.map((v) => v ?? 0);
-    let now = times.indexOf(nowKey);
-    if (now < 0) now = times.findIndex((t) => t > nowKey);
-    if (now < 0) now = times.length - 1;
+// ---------------- Open-Meteo air quality ----------------
 
-    const past = values.slice(Math.max(0, now - 24), now);
-    const nextIdx = [...Array(Math.min(48, times.length - now)).keys()].map((i) => now + i);
-    let maxHourly = 0;
-    let maxHourlyTime = null;
-    for (const i of nextIdx) {
-      if (values[i] > maxHourly) {
-        maxHourly = values[i];
-        maxHourlyTime = times[i];
-      }
-    }
-    return {
-      maxHourly: round2(maxHourly),
-      maxHourlyTime,
-      next48Total: round2(nextIdx.reduce((s, i) => s + values[i], 0)),
-      past24: round2(past.reduce((s, v) => s + v, 0)),
-      hourly: nextIdx.map((i) => ({ t: times[i], v: values[i] })),
-    };
+const AIR_VARS = ['us_aqi', 'us_aqi_pm2_5', 'us_aqi_ozone', 'pm2_5', 'ozone'];
+
+/** Current and peak US AQI over the next 48 h, plus which pollutant drives it. */
+export function summarizeAir(hourly, nowKey) {
+  const times = hourly.time;
+  const now = hourIndex(times, nowKey);
+  const at = (name, i) => (hourly[name] && hourly[name][i] != null ? hourly[name][i] : null);
+  const rows = [];
+  for (let i = now; i < Math.min(times.length, now + 48); i++) {
+    rows.push({ t: times[i], aqi: at('us_aqi', i), aqiPm: at('us_aqi_pm2_5', i), aqiO3: at('us_aqi_ozone', i), pm25: at('pm2_5', i), ozone: at('ozone', i) });
+  }
+  const current = rows.find((r) => r.aqi != null) || null;
+  const peak = maxBy(rows, 'aqi');
+  const ref = peak || current;
+  const dominant = ref && (ref.aqiO3 ?? -1) > (ref.aqiPm ?? -1) ? 'ozone' : 'pm2_5';
+  return {
+    hourly: rows,
+    currentAqi: current ? current.aqi : null,
+    peakAqi: peak ? peak.aqi : null,
+    peakAqiTime: peak ? peak.t : null,
+    pm25: current ? current.pm25 : null,
+    ozone: current ? current.ozone : null,
+    dominant,
+  };
+}
+
+/** Air quality forecast for many points in one request, one summary per point. */
+export async function fetchAirQuality(points) {
+  const q = new URLSearchParams({
+    latitude: points.map((p) => p.lat.toFixed(4)).join(','),
+    longitude: points.map((p) => p.lon.toFixed(4)).join(','),
+    hourly: AIR_VARS.join(','),
+    timezone: NY_TZ,
+    forecast_days: '3',
   });
+  const json = await fetchJson(`https://air-quality-api.open-meteo.com/v1/air-quality?${q}`);
+  const list = Array.isArray(json) ? json : [json];
+  const nowKey = nyHourKey();
+  const summaries = list.map((loc) => summarizeAir(loc.hourly, nowKey));
+  // If the API answered for a single point only, use it citywide.
+  return points.map((_, i) => summaries[i] || summaries[0]);
 }
 
 // ---------------- NWS alerts ----------------
 
-/** Active flood-related NWS alerts, grouped by borough. */
+/** Active NWS alerts that cover at least one NYC borough. */
 export async function fetchAlerts() {
   const json = await fetchJson('https://api.weather.gov/alerts/active?area=NY', {
     headers: { Accept: 'application/geo+json' },
   });
-  const byBorough = Object.fromEntries(Object.keys(BOROUGH_SAME).map((b) => [b, []]));
+  return parseAlerts(json);
+}
+
+export function parseAlerts(json) {
   const all = [];
   for (const f of json.features || []) {
-    const p = f.properties;
-    const cls = classifyAlert(p.event || '');
-    if (!cls) continue;
+    const p = f.properties || {};
     const same = (p.geocode && p.geocode.SAME) || [];
     const boroughs = Object.entries(BOROUGH_SAME)
       .filter(([, code]) => same.includes(code))
       .map(([b]) => b);
-    if (boroughs.length === 0) continue;
-    const alert = { event: p.event, headline: p.headline || p.event, ends: p.ends || p.expires || null, ...cls, boroughs };
-    all.push(alert);
-    for (const b of boroughs) byBorough[b].push(alert);
+    if (boroughs.length === 0 || !p.event) continue;
+    all.push({ event: p.event, headline: p.headline || p.event, ends: p.ends || p.expires || null, boroughs });
   }
-  return { all, byBorough };
+  return all;
 }
 
 // ---------------- NYC 311 ----------------
@@ -250,6 +338,14 @@ export async function geocode(text) {
     lon: f.geometry.coordinates[0],
     lat: f.geometry.coordinates[1],
   }));
+}
+
+/** Nearest address label for a point, or null. */
+export async function reverseGeocode(lat, lon) {
+  const q = new URLSearchParams({ 'point.lat': lat.toFixed(6), 'point.lon': lon.toFixed(6), size: '1' });
+  const json = await fetchJson(`https://geosearch.planninglabs.nyc/v2/reverse?${q}`, { timeoutMs: 8000 });
+  const f = (json.features || [])[0];
+  return f ? { label: f.properties.label, borough: f.properties.borough } : null;
 }
 
 // ---------------- FEMA flood zone ----------------

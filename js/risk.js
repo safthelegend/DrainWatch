@@ -57,20 +57,25 @@ export function rainfallHazard(maxHourlyIn, past24In = null) {
 const COASTAL_ALERT = /coastal|storm surge|hurricane|tropical/i;
 const STORMWATER_ALERT = /flash flood|flood/i;
 
+/** NWS product tier from an event name: emergency > warning > watch / advisory > statement. */
+export function alertSeverity(event) {
+  if (/emergency/i.test(event)) return 'emergency';
+  if (/warning/i.test(event)) return 'warning';
+  if (/watch/i.test(event)) return 'watch';
+  if (/advisory/i.test(event)) return 'advisory';
+  return 'statement';
+}
+
 /** Sort an NWS alert event name into { kind, severity }, or null if it isn't flood related. */
 export function classifyAlert(event) {
   let kind = null;
   if (COASTAL_ALERT.test(event)) kind = 'coastal';
   else if (STORMWATER_ALERT.test(event)) kind = 'stormwater';
   if (!kind) return null;
-  let severity = 'statement';
-  if (/warning/i.test(event)) severity = 'warning';
-  else if (/watch/i.test(event)) severity = 'watch';
-  else if (/advisory/i.test(event)) severity = 'advisory';
-  return { kind, severity };
+  return { kind, severity: alertSeverity(event) };
 }
 
-const ALERT_WEIGHT = { warning: 1.5, watch: 0.75, advisory: 0.75, statement: 0.25 };
+const ALERT_WEIGHT = { emergency: 2, warning: 1.5, watch: 0.75, advisory: 0.75, statement: 0.25 };
 
 export function alertBoost(alerts, kind) {
   return alerts.filter((a) => a.kind === kind).reduce((max, a) => Math.max(max, ALERT_WEIGHT[a.severity]), 0);
@@ -92,6 +97,14 @@ export function levelFor(score) {
 
 export function levelLabel(level) {
   return LEVELS.find((l) => l.level === level).label;
+}
+
+export function clamp(n, lo, hi) {
+  return Math.min(hi, Math.max(lo, n));
+}
+
+export function round2(n) {
+  return Math.round(n * 100) / 100;
 }
 
 /**
@@ -164,12 +177,6 @@ export function exposureFromComplaintHistory(count) {
   return 1;
 }
 
-function clamp(n, lo, hi) {
-  return Math.min(hi, Math.max(lo, n));
-}
-function round2(n) {
-  return Math.round(n * 100) / 100;
-}
 function fmt(n) {
   return n == null ? '?' : n.toFixed(2);
 }
