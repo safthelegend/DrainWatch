@@ -1,12 +1,14 @@
-// DrainWatch: wires live data, the replays, the risk models, the scroll story,
-// the map and the page together. State lives in one object; each render*()
-// redraws its part of the page from it.
+// DrainWatch: wires live data, the replays, the risk models, the dashboard,
+// the opt-in scroll story, the map and the page together. State lives in one
+// object; each render*() redraws its part of the page from it.
 
 import { AREAS, TIDE_STATIONS } from './config.js';
 import {
   fetch311History,
   fetchAirQuality,
   fetchAlerts,
+  fetchEvacuationCenters,
+  fetchEvacuationZone,
   fetchFemaZone,
   fetchRecent311,
   fetchTides,
@@ -14,20 +16,37 @@ import {
   geocode,
   reverseGeocode,
 } from './data.js';
-import { exposureFromComplaintHistory, exposureFromFemaZone, levelLabel } from './risk.js';
+import { distanceKm, exposureFromComplaintHistory, exposureFromFemaZone, LEVELS, levelLabel } from './risk.js';
 import { aqiCategory } from './air-risk.js';
 import { HAZARDS, HAZARD_ORDER, assessAll, assessPlace, citySummary, hasData, nearestAreaIndex } from './hazards.js';
-import { SEA_LEVEL_STOPS, buildScenario, scenarioById, scenariosFor, withSeaLevelRise } from './scenarios.js';
+import { SEA_LEVEL_STOPS, buildScenario, replayWaterSeries, scenarioById, scenariosFor, withSeaLevelRise } from './scenarios.js';
 import { attachChartHover } from './charts.js';
 import { areaPopupHtml, detailsHtml, legendHtml, rankingRowsHtml, reportHtml, reportPinPopupHtml, stationPopupHtml } from './panels.js';
 import { initChecklist, renderMethodology, renderSeaLevel, renderSources, renderStoryTable } from './sections.js';
-import { buildStory } from './story/stories.js';
+import { COMPARE_PRESETS, compareHtml } from './compare.js';
+import {
+  cellAreaKm2,
+  compassWord,
+  elevationAt,
+  floodCounts,
+  floodImage,
+  floodMask,
+  gridFromPixels,
+  medianElevationByNta,
+  nearestHigherGround,
+  walkMinutes,
+} from './flood-extent.js';
+import { ELEVATION } from './story/elevation.js';
+import { buildStory, storyTime, waterNavdMeters } from './story/stories.js';
 import { createStoryController } from './story/controller.js';
 import * as mapView from './map.js';
-import { esc } from './ui.js';
-
+import { esc, level } from './ui.js';
 
 const REFRESH_MS = 15 * 60 * 1000;
+const RANK = Object.fromEntries(LEVELS.map((l, i) => [l.level, i]));
+/** "Higher ground" must clear a Sandy-size storm on 2080s seas by this much (about 3 ft). */
+const HIGHER_MARGIN_M = 0.9;
+const FUTURE_STOP = SEA_LEVEL_STOPS.find((s) => s.id === '2080s');
 
 const SOURCES = {
   tides: { name: 'NOAA Tides & Currents', url: 'https://tidesandcurrents.noaa.gov/' },
@@ -36,42 +55,60 @@ const SOURCES = {
   alerts: { name: 'National Weather Service alerts', url: 'https://www.weather.gov/' },
   reports: { name: 'NYC 311 flooding reports', url: 'https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9' },
   fema: { name: 'FEMA flood zones', url: 'https://msc.fema.gov/portal/home' },
+  evac: { name: 'NYC Emergency Management evacuation zones & centers', url: 'https://data.cityofnewyork.us/Public-Safety/Hurricane-Evacuation-Zones/epne-qv9x' },
   geosearch: { name: 'NYC GeoSearch', url: 'https://geosearch.planninglabs.nyc/' },
+  elevation: { name: 'USGS 3DEP elevation (AWS Terrain Tiles)', url: 'https://registry.opendata.aws/terrain-tiles/' },
+  tiles: { name: 'OpenStreetMap map tiles', url: 'https://www.openstreetmap.org/copyright' },
 };
 
 const state = {
+  view: 'dashboard', // 'dashboard' or 'story' (the 3D scroll replay, opt-in)
+  tab: 'ranking',
   hazard: 'heat',
-  scenario: 'live', // what the app section shows: live data or a replay
+  scenario: 'live', // what the dashboard shows: live data or a replay
   slrIndex: 0,
+  hour: null, // the time machine's storm hour (index into the replay's water series; null = the peak)
+  playing: false,
   live: { mode: 'live', tides: {}, weather: null, air: null, alerts: null, reports: null },
   liveLoaded: false,
   loading: false,
   updatedAt: null,
   status: {},
   selectedStation: 'battery',
-  point: null, // { place, idx, fema, history, pointWeather, loading }
+  point: null, // { place, idx, fema, history, pointWeather, loading, refuge }
   overlays: { fema: false, reports: true, stations: true },
   heatDrivers: null,
   showAll: false,
+  compare: { a: COMPARE_PRESETS[0][0], b: COMPARE_PRESETS[0][1] },
 };
 
 const scenarioCache = new Map();
+const seriesCache = new Map();
+const zoneCache = new Map(); // area id → evacuation zone (or 'error'), for the comparison
 const $ = (id) => document.getElementById(id);
 const tip = $('chart-tip');
 const isLive = () => state.scenario === 'live';
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// the elevation grid and what it says about each rated neighborhood (loaded after first paint)
+let terrain = null; // { grid, cellKm2, sandyFt, areas: Map(id → { codes, medianM, sandyPct, futurePct }) }
+let riskDelta = null; // { worse: Set(id), byId: Map(id → { scoreDelta, levelUp }) } while sea level rise is on
 
 // ---------------- inputs ----------------
 
+function scenarioInputs(id) {
+  if (!scenarioCache.has(id)) scenarioCache.set(id, buildScenario(id));
+  return scenarioCache.get(id);
+}
+
 function baseInputs() {
-  if (isLive()) return state.live;
-  if (!scenarioCache.has(state.scenario)) scenarioCache.set(state.scenario, buildScenario(state.scenario));
-  return scenarioCache.get(state.scenario);
+  return isLive() ? state.live : scenarioInputs(state.scenario);
 }
 
 /** Sea level rise only ever applies to the flood model. */
-function inputsFor(hazard) {
+function inputsFor(hazard, slrIndex = state.slrIndex) {
   const base = baseInputs();
-  const stop = SEA_LEVEL_STOPS[state.slrIndex];
+  const stop = SEA_LEVEL_STOPS[slrIndex];
   if (hazard === 'floods' && stop.inches) return { ...base, tides: withSeaLevelRise(base.tides, stop.inches) };
   return base;
 }
@@ -123,7 +160,7 @@ function setMega(el, num) {
   el.innerHTML = num ? `<span class="mega-num">${esc(num.value)}</span><span class="mega-unit">${esc(num.unit.trim())}</span>` : '';
 }
 
-// ---------------- hero ----------------
+// ---------------- the story's hero (story view only) ----------------
 
 function renderHero() {
   const h = state.hazard;
@@ -171,7 +208,7 @@ function storyFor(h) {
   return stories.get(h);
 }
 
-// ---------------- the app section ----------------
+// ---------------- the dashboard ----------------
 
 function renderApp() {
   const h = state.hazard;
@@ -196,16 +233,20 @@ function renderApp() {
     ? ''
     : available
       ? esc(summary.headline)
-      : `We couldn't reach the live data feeds. Pick a replay below to see how DrainWatch rates a real storm.`;
+      : `We couldn't reach the live data feeds. Pick a replay in the time machine to see how DrainWatch rates a real storm.`;
   $('app-context').textContent = s && available ? `${s.summary} Approximate reconstruction, run through today's risk model.` : '';
 
+  riskDelta = available ? computeRiskDelta(h, results) : null;
+  renderChips();
   renderModes();
   renderMapData(results, inputs, available);
-  $('ranking').querySelector('tbody').innerHTML = rankingRowsHtml(results, available, { limit: state.showAll ? Infinity : 12 });
+  const table = $('ranking');
+  table.classList.toggle('show-delta', Boolean(riskDelta));
+  table.querySelector('tbody').innerHTML = rankingRowsHtml(results, available, { limit: state.showAll ? Infinity : 12, delta: riskDelta && riskDelta.byId });
   $('ranking-more').hidden = state.showAll;
   $('ranking-more').textContent = `Show all ${results.length} neighborhoods`;
   $('ranking-note').textContent = available
-    ? `${HAZARDS[h].title}${s ? '' : ' for the next 48 hours'}, highest first.${s ? ` Replaying ${s.name}.` : ''} Select a name to find it on the map.`
+    ? `${HAZARDS[h].title}${s ? '' : ' for the next 48 hours'}, highest first.${s ? ` Replaying ${s.name}.` : ''}${riskDelta ? ` "vs today" is the change from ${SEA_LEVEL_STOPS[state.slrIndex].label} sea level rise.` : ''} Select a name to find it on the map.`
     : 'Ratings appear when data is available.';
   $('details').innerHTML = detailsHtml({ hazard: h, inputs, status: state.status, selectedStation: state.selectedStation, isLive: isLive(), pending });
   attachChartHover($('details'), tip);
@@ -213,6 +254,32 @@ function renderApp() {
   renderSources(SOURCES, state.status);
   renderStatus();
   writeHash();
+  renderTimeMachine();
+  if ($('compare').open) renderCompare();
+}
+
+/** Which neighborhoods sea level rise pushes up a risk level (floods only). */
+function computeRiskDelta(hazard, results) {
+  if (hazard !== 'floods' || !state.slrIndex) return null;
+  const today = assessAll('floods', inputsFor('floods', 0));
+  const worse = new Set();
+  const byId = new Map();
+  results.forEach((r, i) => {
+    const levelUp = RANK[r.level] > RANK[today[i].level];
+    if (levelUp) worse.add(r.area.id);
+    byId.set(r.area.id, { scoreDelta: Math.round((r.score - today[i].score) * 100) / 100, levelUp, from: today[i].level });
+  });
+  return { worse, byId };
+}
+
+/** One small tile per hazard: the worst level anywhere in the city, live. */
+function renderChips() {
+  $('hazard-chips').innerHTML = HAZARD_ORDER.map((h) => {
+    const s = liveSummary(h);
+    const lvl = s ? s.worst.level : null;
+    const word = lvl ? levelLabel(lvl) : state.liveLoaded ? 'No data' : '…';
+    return `<a class="chip" data-hazard="${h}" href="#${h}"${h === state.hazard ? ' aria-current="true"' : ''}>${esc(HAZARDS[h].label)}${level(lvl || 'none', word)}</a>`;
+  }).join('');
 }
 
 function renderModes() {
@@ -220,29 +287,22 @@ function renderModes() {
   $('mode-list').innerHTML = options
     .map((o) => `<button type="button" role="radio" data-scenario="${o.id}" aria-checked="${o.id === state.scenario}" tabindex="${o.id === state.scenario ? 0 : -1}">${esc(o.label)}</button>`)
     .join('');
-  const floods = state.hazard === 'floods';
-  $('slr').hidden = !floods;
-  if (floods) {
-    $('slr-list').innerHTML = SEA_LEVEL_STOPS.map(
-      (stop, i) =>
-        `<button type="button" role="radio" data-slr="${i}" aria-checked="${i === state.slrIndex}" tabindex="${i === state.slrIndex ? 0 : -1}">${esc(stop.label)}${stop.inches ? ` +${stop.inches} in` : ''}</button>`,
-    ).join('');
-    const stop = SEA_LEVEL_STOPS[state.slrIndex];
-    $('slr-note').textContent = stop.inches
-      ? `Every water level is raised ${stop.inches} inches, the middle of the NYC Panel on Climate Change's likely range for the ${stop.label} (high-end estimate: ${stop.highEnd} in).`
-      : 'Raise the sea to the levels projected for later this century.';
-  }
 }
 
 function renderMapData(results, inputs, available) {
   const levels = {};
   if (available) for (const r of results) levels[r.area.id] = r.level;
   const byId = Object.fromEntries(results.map((r) => [r.area.id, r]));
-  mapView.paintNtas(levels, (f, lvl) => {
-    const names = f.properties.areas.map((id) => byId[id].area.name);
-    if (names.length) return `${esc(names.join(' & '))} · ${lvl ? levelLabel(lvl) : 'no data'}`;
-    return f.properties.park ? null : `${esc(f.properties.name)} · not rated`;
-  });
+  mapView.paintNtas(
+    levels,
+    (f, lvl) => {
+      const names = f.properties.areas.map((id) => byId[id].area.name);
+      const up = riskDelta && f.properties.areas.find((id) => riskDelta.worse.has(id));
+      if (names.length) return `${esc(names.join(' & '))} · ${lvl ? levelLabel(lvl) : 'no data'}${up ? ` (up from ${levelLabel(riskDelta.byId.get(up).from)})` : ''}`;
+      return f.properties.park ? null : `${esc(f.properties.name)} · not rated`;
+    },
+    riskDelta && riskDelta.worse,
+  );
   $('legend').innerHTML = legendHtml();
   const floods = state.hazard === 'floods';
   $('layers').hidden = !floods;
@@ -273,6 +333,261 @@ function renderStatus() {
   }
 }
 
+// ---------------- the climate time machine ----------------
+
+/** Hourly Battery water levels for the flood replay on screen, or null in live mode / other hazards. */
+function replaySeries() {
+  if (state.hazard !== 'floods' || isLive()) return null;
+  if (!seriesCache.has(state.scenario)) seriesCache.set(state.scenario, replayWaterSeries(state.scenario));
+  return seriesCache.get(state.scenario);
+}
+
+const hourOf = (series) => (state.hour == null ? series.peak : Math.min(series.level.length - 1, state.hour));
+
+/** Water at the Battery (ft above normal high tide) at the time machine's moment, before sea level rise. */
+function waterNowFt() {
+  const series = replaySeries();
+  if (series) return series.level[hourOf(series)];
+  const t = (baseInputs().tides || {}).battery;
+  return t && t.peak != null ? t.peak : 0;
+}
+
+/** Paint a range input's filled track (WebKit has no ::range-progress). */
+function setFill(input) {
+  const pct = ((input.value - input.min) / (input.max - input.min || 1)) * 100;
+  input.style.setProperty('--fill', `${pct}%`);
+}
+
+function renderTimeMachine() {
+  const floods = state.hazard === 'floods';
+  const stop = SEA_LEVEL_STOPS[state.slrIndex];
+
+  $('slr').hidden = !floods;
+  const r = $('slr-range');
+  r.max = String(SEA_LEVEL_STOPS.length - 1);
+  r.value = String(state.slrIndex);
+  setFill(r);
+  const words = stop.inches ? `+${stop.inches} in · ${stop.label}` : 'Today';
+  $('slr-out').textContent = words;
+  r.setAttribute('aria-valuetext', stop.inches ? `${stop.label}, ${stop.inches} inches of sea level rise` : "Today's sea level");
+  $('slr-ticks').innerHTML = SEA_LEVEL_STOPS.map((s, i) => `<span${i === state.slrIndex ? ' class="on"' : ''}>${esc(s.inches ? s.label : 'Today')}</span>`).join('');
+  $('slr-note').textContent = stop.inches
+    ? `Every water level is raised ${stop.inches} inches, the middle of the NYC Panel on Climate Change's likely range for the ${stop.label} (high-end estimate: ${stop.highEnd} in).`
+    : 'Drag to raise the sea to the levels projected for later this century.';
+
+  const series = replaySeries();
+  $('tm-hour').hidden = !series;
+  if (series) {
+    const hr = $('hour-range');
+    hr.max = String(series.level.length - 1);
+    hr.value = String(hourOf(series));
+    setFill(hr);
+  } else stopPlay();
+
+  for (const a of document.querySelectorAll('#tm-presets a')) {
+    if (a.getAttribute('href') === location.hash) a.setAttribute('aria-current', 'true');
+    else a.removeAttribute('aria-current');
+  }
+  renderFloodView();
+}
+
+function cssRgb(name) {
+  const hex = getComputedStyle(document.documentElement).getPropertyValue(name).trim().replace('#', '');
+  const n = parseInt(hex.length === 3 ? hex.replace(/./g, '$&$&') : hex, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+const km2 = (v) => (v >= 100 ? Math.round(v) : v.toFixed(1));
+const sqmi = (v) => Math.round(v / 2.59);
+
+/** The flood overlay, the storm-hour readout and the "what changed" numbers. Cheap enough to run every animation frame. */
+function renderFloodView() {
+  const floods = state.hazard === 'floods';
+  const series = replaySeries();
+  const stop = SEA_LEVEL_STOPS[state.slrIndex];
+  const slrFt = floods ? stop.inches / 12 : 0;
+  const baseFt = floods ? waterNowFt() : 0;
+
+  if (series) {
+    const k = hourOf(series);
+    const tide = (ft) => `<b>${Math.abs(ft).toFixed(1)} ft</b> ${ft < 0 ? 'below' : 'above'} normal high tide`;
+    $('tm-readout').innerHTML = `${esc(storyTime(series.time[k]))}${k === series.peak ? ' (the peak)' : ''} · water at the Battery ${tide(baseFt)}${slrFt ? `; on ${esc(stop.label)} seas, ${tide(baseFt + slrFt)}` : ''}`;
+  }
+
+  const wanted = floods && (series || slrFt > 0);
+  if (!wanted || !terrain) {
+    mapView.setFloodExtent(null);
+    $('flood-key').hidden = true;
+    $('tm-delta').innerHTML = wanted ? '<p class="note">Loading the elevation map…</p>' : floods ? '' : '<p class="note">Sea level and flood extent apply to the Floods tab. Try a preset above.</p>';
+    return;
+  }
+
+  const { grid } = terrain;
+  const baseM = waterNavdMeters(baseFt);
+  const base = floodMask(grid, baseM);
+  const plus = slrFt ? floodMask(grid, waterNavdMeters(baseFt + slrFt)) : null;
+  mapView.setFloodExtent(floodImage(grid, { base, plus, baseLevelM: baseM, baseRgb: cssRgb('--flood-base'), plusRgb: cssRgb('--delta') }), grid.size, grid.bbox);
+  $('flood-key').hidden = false;
+  $('flood-key').querySelector('.k-plus').parentElement.hidden = !plus;
+  $('flood-key').querySelector('.k-worse').parentElement.hidden = !(riskDelta && riskDelta.worse.size);
+  $('tm-delta').innerHTML = deltaHtml(floodCounts(grid, plus ? [base, plus] : [base]), { series, stop, baseFt });
+}
+
+function deltaHtml(counts, { series, stop, baseFt }) {
+  const cell = terrain.cellKm2;
+  const total = (arr) => {
+    let s = 0;
+    for (let c = 1; c < arr.length; c++) s += arr[c];
+    return s;
+  };
+  const a = total(counts.wet[0]) * cell;
+  const when = series ? 'at this hour' : 'at the highest tide of the next 48 hours';
+  const stats = [
+    `<div class="delta-stat"><span class="label">Land under water</span><span class="v">${km2(a)}<small>km²</small></span><span class="note">${sqmi(a)} sq mi ${esc(when)}${stop.inches ? ", today's seas" : ''}</span></div>`,
+  ];
+  let list = '';
+  let note = '';
+  if (counts.wet[1]) {
+    const b = total(counts.wet[1]) * cell;
+    const pct = a > 0.05 ? `+${Math.round(((b - a) / a) * 100)}%` : 'new';
+    stats.push(
+      `<div class="delta-stat"><span class="label">With +${stop.inches} in of sea</span><span class="v">${km2(b)}<small>km²</small></span><span class="d">+${km2(b - a)} km² · ${pct}</span></div>`,
+    );
+    // the rated neighborhoods that gain the most flooded land
+    const rows = [];
+    for (const [id, t] of terrain.areas) {
+      let land = 0;
+      let w0 = 0;
+      let w1 = 0;
+      for (const code of t.codes) {
+        land += counts.land[code];
+        w0 += counts.wet[0][code];
+        w1 += counts.wet[1][code];
+      }
+      const pts = land ? ((w1 - w0) / land) * 100 : 0;
+      if (pts >= 1) rows.push({ area: AREAS.find((x) => x.id === id), pts, now: (w1 / land) * 100 });
+    }
+    rows.sort((x, y) => y.pts - x.pts);
+    if (rows.length)
+      list = `<p class="label" style="margin-top:16px">Most newly flooded land</p><ul class="delta-list">${rows
+        .slice(0, 5)
+        .map((r) => `<li><span>${esc(r.area.name)}</span><span class="num">+${Math.round(r.pts)} pts → ${Math.round(r.now)}% of land</span></li>`)
+        .join('')}</ul>`;
+    const ups = riskDelta ? [...riskDelta.worse].map((id) => AREAS.find((x) => x.id === id).name) : [];
+    note = ups.length
+      ? `<p class="note delta-note"><b class="up">${ups.length} neighborhood${ups.length === 1 ? '' : 's'} move up a risk level</b> (dashed outline): ${esc(ups.slice(0, 6).join(', '))}${ups.length > 6 ? '…' : ''}.</p>`
+      : `<p class="note delta-note">No neighborhood changes risk level${series ? `: in ${esc(scenarioById(state.scenario).short)} the hardest-hit places are already at the top of the scale` : ''}. The extra water shows up on the map instead, in orange.</p>`;
+  } else {
+    stats.push(`<div class="delta-stat"><span class="label">Water at the Battery</span><span class="v">${baseFt.toFixed(1)}<small>ft</small></span><span class="note">above normal high tide</span></div>`);
+    note = '<p class="note delta-note">Raise the sea level above to see what the same water does on future seas.</p>';
+  }
+  return `<div class="delta-stats">${stats.join('')}</div>${note}${list}`;
+}
+
+let playFrame = 0;
+function stopPlay() {
+  if (!state.playing) return;
+  state.playing = false;
+  cancelAnimationFrame(playFrame);
+  $('tm-play').setAttribute('aria-pressed', 'false');
+  $('tm-play').textContent = '▶ Play';
+}
+
+function startPlay() {
+  const series = replaySeries();
+  if (!series) return;
+  state.playing = true;
+  $('tm-play').setAttribute('aria-pressed', 'true');
+  $('tm-play').textContent = '❚❚ Pause';
+  if (hourOf(series) >= series.level.length - 1) state.hour = 0;
+  const msPerHour = reducedMotion() ? 600 : 160;
+  let last = performance.now();
+  const step = (now) => {
+    if (!state.playing) return;
+    if (now - last >= msPerHour) {
+      last = now;
+      const next = hourOf(series) + 1;
+      if (next >= series.level.length) return stopPlay();
+      state.hour = next;
+      $('hour-range').value = String(next);
+      setFill($('hour-range'));
+      renderFloodView();
+    }
+    playFrame = requestAnimationFrame(step);
+  };
+  playFrame = requestAnimationFrame(step);
+}
+
+// ---------------- terrain: elevation grid for flood extent, higher ground and the comparison ----------------
+
+function loadTerrain() {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = ELEVATION.url;
+  }).then((img) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = ELEVATION.size;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    return gridFromPixels(ctx.getImageData(0, 0, ELEVATION.size, ELEVATION.size).data);
+  });
+}
+
+/** Once the grid and the neighborhood shapes are both in, summarize each rated neighborhood. */
+function prepareTerrain(grid, features) {
+  const sandyFt = scenarioInputs('sandy').tides.battery.peak;
+  const sandy = floodMask(grid, waterNavdMeters(sandyFt));
+  const future = floodMask(grid, waterNavdMeters(sandyFt + FUTURE_STOP.inches / 12));
+  const counts = floodCounts(grid, [sandy, future]);
+  const medians = medianElevationByNta(grid);
+  const areas = new Map();
+  for (const area of AREAS) {
+    const codes = [];
+    features.forEach((f, k) => {
+      if (f.properties.areas.includes(area.id)) codes.push(k + 1);
+    });
+    let land = 0;
+    let w0 = 0;
+    let w1 = 0;
+    let elevSum = 0;
+    for (const code of codes) {
+      land += counts.land[code];
+      w0 += counts.wet[0][code];
+      w1 += counts.wet[1][code];
+      if (medians.has(code)) elevSum += medians.get(code) * counts.land[code];
+    }
+    areas.set(area.id, land ? { codes, medianM: elevSum / land, sandyPct: (w0 / land) * 100, futurePct: (w1 / land) * 100 } : { codes, medianM: null, sandyPct: null, futurePct: null });
+  }
+  return { grid, cellKm2: cellAreaKm2(grid), sandyFt, areas };
+}
+
+/** Elevation-based refuge for a point: where a Sandy-size storm reaches, and the nearest ground well above it. */
+function terrainRefuge(lat, lon) {
+  if (!terrain) return false;
+  const { grid, sandyFt } = terrain;
+  const hereM = elevationAt(grid, lat, lon);
+  const sandyM = waterNavdMeters(sandyFt);
+  const futureM = waterNavdMeters(sandyFt + FUTURE_STOP.inches / 12);
+  const minM = futureM + HIGHER_MARGIN_M;
+  let higher = null;
+  if (hereM != null && hereM < minM) {
+    const h = nearestHigherGround(grid, lat, lon, minM, 5);
+    if (h) higher = { ...h, compass: compassWord(lat, lon, h.lat, h.lon), minutes: walkMinutes(Math.max(h.km, h.routeKm)) };
+  }
+  return { hereM, sandyM, futureM, minM, higher };
+}
+
+function nearestCenter(centers, lat, lon) {
+  let best = null;
+  for (const c of centers) {
+    const km = distanceKm(lat, lon, c.lat, c.lon);
+    if (!best || km < best.km) best = { ...c, km };
+  }
+  return best && { ...best, compass: compassWord(lat, lon, best.lat, best.lon) };
+}
+
 // ---------------- routing ----------------
 
 /** #heat, #floods/sandy, #floods/live/2080s: shareable links into a view. */
@@ -280,7 +595,9 @@ function readHash() {
   const [hazard, scenario, slr] = decodeURIComponent(location.hash.slice(1)).split('/');
   if (!HAZARD_ORDER.includes(hazard)) return false;
   state.hazard = hazard;
-  state.scenario = scenario && scenariosFor(hazard).some((s) => s.id === scenario) ? scenario : 'live';
+  const next = scenario && scenariosFor(hazard).some((s) => s.id === scenario) ? scenario : 'live';
+  if (next !== state.scenario) state.hour = null;
+  state.scenario = next;
   const stop = SEA_LEVEL_STOPS.findIndex((s) => s.id === slr);
   state.slrIndex = hazard === 'floods' && stop > 0 ? stop : 0;
   return true;
@@ -307,6 +624,94 @@ async function setHazard(h) {
     renderStoryTable(storyFor(h));
     await story.setHazard(h, { heatDrivers: state.heatDrivers });
   }
+}
+
+// ---------------- views and tabs ----------------
+
+let stageStarted = false;
+function setView(view) {
+  state.view = view;
+  document.body.dataset.view = view;
+  const toStory = view === 'story';
+  $('view-toggle').textContent = toStory ? 'Dashboard' : '3D story';
+  window.scrollTo(0, 0);
+  if (toStory) {
+    // the 3D stage (and its 600 KB of three.js) only loads for people who ask for the story
+    if (!stageStarted) {
+      stageStarted = true;
+      (window.requestIdleCallback || ((f) => setTimeout(f, 200)))(startStage);
+    }
+    story.start();
+  } else {
+    story.pause();
+  }
+  mapView.invalidate();
+}
+
+const TABS = ['ranking', 'details', 'ready', 'method'];
+function selectTab(name, focus = false) {
+  state.tab = name;
+  for (const t of TABS) {
+    const on = t === name;
+    $(`tab-${t}`).setAttribute('aria-selected', String(on));
+    $(`tab-${t}`).tabIndex = on ? 0 : -1;
+    $(`panel-${t}`).hidden = !on;
+  }
+  if (focus) $(`tab-${name}`).focus();
+}
+
+// ---------------- neighborhood vs. neighborhood ----------------
+
+function fillCompareSelects() {
+  const byBorough = new Map();
+  for (const a of AREAS) {
+    if (!byBorough.has(a.borough)) byBorough.set(a.borough, []);
+    byBorough.get(a.borough).push(a);
+  }
+  const html = [...byBorough]
+    .map(([b, list]) => `<optgroup label="${esc(b)}">${list.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</optgroup>`)
+    .join('');
+  $('cmp-a').innerHTML = html;
+  $('cmp-b').innerHTML = html;
+  const name = (id) => AREAS.find((a) => a.id === id).name;
+  $('cmp-presets').innerHTML =
+    '<span class="label" style="align-self:center;margin-right:4px">Try</span>' +
+    COMPARE_PRESETS.map(([a, b]) => `<button type="button" data-a="${a}" data-b="${b}">${esc(name(a))} vs. ${esc(name(b))}</button>`).join('');
+}
+
+function openCompare() {
+  $('compare').showModal();
+  renderCompare();
+}
+
+function compareSide(id) {
+  const i = AREAS.findIndex((a) => a.id === id);
+  const area = AREAS[i];
+  const results = Object.fromEntries(HAZARD_ORDER.map((h) => [h, assessPlace(h, area, inputsFor(h), i)]));
+  if (!zoneCache.has(id)) {
+    zoneCache.set(id, undefined);
+    fetchEvacuationZone(area.lat, area.lon)
+      .catch(() => 'error')
+      .then((z) => {
+        zoneCache.set(id, z);
+        if ($('compare').open) renderCompare();
+      });
+  }
+  return { area, results, terrain: terrain ? terrain.areas.get(id) : null, zone: zoneCache.get(id) };
+}
+
+function renderCompare() {
+  const { a, b } = state.compare;
+  $('cmp-a').value = a;
+  $('cmp-b').value = b;
+  const s = scenarioById(state.scenario);
+  const stop = SEA_LEVEL_STOPS[state.slrIndex];
+  const available = Object.fromEntries(HAZARD_ORDER.map((h) => [h, !(isLive() && !state.liveLoaded) && hasData(h, inputsFor(h))]));
+  $('cmp-body').innerHTML = compareHtml(compareSide(a), compareSide(b), {
+    available,
+    when: s ? `in the ${s.short} ${s.year} replay` : 'right now',
+    slrLabel: stop.inches ? `${stop.label} (+${stop.inches} in)` : '',
+  });
 }
 
 // ---------------- live data ----------------
@@ -364,10 +769,26 @@ async function checkPoint(place, { scroll = false } = {}) {
   const id = ++pointRequest;
   const { lat, lon } = place;
   const idx = nearestAreaIndex(lat, lon);
-  state.point = { place, idx, loading: true, fema: null, history: null, pointWeather: null };
+  state.point = { place, idx, loading: true, fema: null, history: null, pointWeather: null, refuge: { zone: undefined, center: undefined } };
   mapView.showPoint(lat, lon);
+  mapView.clearRefuge();
   renderPoint();
-  if (scroll) $('report').scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  if (scroll) $('report').scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' });
+
+  // the safety plan fills in as each piece answers
+  const zoneP = track('evac', fetchEvacuationZone(lat, lon)).then((z) => (z === null && state.status.evac && !state.status.evac.ok ? 'error' : z));
+  const centerP = fetchEvacuationCenters()
+    .then((list) => nearestCenter(list, lat, lon))
+    .catch(() => 'error');
+  for (const [key, p] of [['zone', zoneP], ['center', centerP]]) {
+    p.then((v) => {
+      if (id !== pointRequest) return;
+      state.point.refuge[key] = v;
+      renderPoint();
+      // markers go up as soon as the nearest center is known; no need to wait for FEMA or 311
+      if (key === 'center') drawRefuge({ frame: true });
+    });
+  }
 
   const [fema, history, pointWeather, named] = await Promise.all([
     track('fema', fetchFemaZone(lat, lon)),
@@ -379,9 +800,21 @@ async function checkPoint(place, { scroll = false } = {}) {
   ]);
   if (id !== pointRequest) return; // a newer check started
   if (named) Object.assign(place, { label: named.label, borough: named.borough || place.borough });
-  state.point = { place, idx, loading: false, fema, history, pointWeather };
+  Object.assign(state.point, { place, idx, loading: false, fema, history, pointWeather });
   renderPoint();
   renderSources(SOURCES, state.status);
+}
+
+/** Markers for the evacuation center and higher ground; `frame` zooms to fit them. */
+function drawRefuge({ frame = false } = {}) {
+  const p = state.point;
+  if (!p) return;
+  const c = p.refuge.center;
+  const t = p.refuge.terrain || null;
+  const higher = t && t.higher ? t.higher : null;
+  const ec = c && c !== 'error' ? c : null;
+  mapView.showRefuge(p.place, { center: ec, higher });
+  if (frame) mapView.frame([p.place, higher, ec && ec.km < 6 ? ec : null]);
 }
 
 function pointReport() {
@@ -403,7 +836,20 @@ function pointReport() {
     }
     results[h] = assessPlace(h, spot, inputs, p.idx, overrides);
   }
-  return { place: p.place, borough, nearest: area, loading: p.loading, fema: p.fema, history: p.history, stationName: TIDE_STATIONS[area.station].name, results, available };
+  if (!p.refuge.terrain && terrain) p.refuge.terrain = terrainRefuge(p.place.lat, p.place.lon);
+  return {
+    place: p.place,
+    borough,
+    nearest: area,
+    loading: p.loading,
+    fema: p.fema,
+    history: p.history,
+    stationName: TIDE_STATIONS[area.station].name,
+    results,
+    available,
+    pending: isLive() && !state.liveLoaded,
+    refuge: { ...p.refuge, terrain: p.refuge.terrain || false },
+  };
 }
 
 function renderPoint() {
@@ -442,7 +888,7 @@ function wireSearch(formId, inputId, resultsId, { scroll }) {
     } catch {
       state.status.geosearch = { ok: false, message: 'offline' };
       renderSources(SOURCES, state.status);
-      results.innerHTML = "<p>Address search isn't responding right now. You can click any spot on the map below instead.</p>";
+      results.innerHTML = "<p>Address search isn't responding right now. You can click any spot on the map instead.</p>";
     }
   });
   input.addEventListener('input', () => {
@@ -452,30 +898,46 @@ function wireSearch(formId, inputId, resultsId, { scroll }) {
 
 // ---------------- events ----------------
 
+let renderQueued = false;
+/** Coalesce rapid slider input into one render per frame, so dragging stays snappy. */
+function queueRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => {
+    renderQueued = false;
+    renderApp();
+  });
+}
+
 $('mode-list').addEventListener('click', (e) => {
   const b = e.target.closest('[data-scenario]');
   if (!b) return;
+  if (b.dataset.scenario !== state.scenario) state.hour = null;
   state.scenario = b.dataset.scenario;
+  stopPlay();
   renderApp();
   $('mode-list').querySelector(`[data-scenario="${state.scenario}"]`).focus();
 });
-$('slr-list').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-slr]');
-  if (!b) return;
-  state.slrIndex = +b.dataset.slr;
-  renderApp();
-  $('slr-list').querySelector(`[data-slr="${state.slrIndex}"]`).focus();
+$('mode-list').addEventListener('keydown', (e) => {
+  const buttons = [...$('mode-list').querySelectorAll('button')];
+  const i = buttons.findIndex((b) => b.getAttribute('aria-checked') === 'true');
+  const next = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1 }[e.key];
+  if (next == null) return;
+  e.preventDefault();
+  buttons[(next + buttons.length) % buttons.length].click();
 });
-for (const id of ['mode-list', 'slr-list']) {
-  $(id).addEventListener('keydown', (e) => {
-    const buttons = [...$(id).querySelectorAll('button')];
-    const i = buttons.findIndex((b) => b.getAttribute('aria-checked') === 'true');
-    const next = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1 }[e.key];
-    if (next == null) return;
-    e.preventDefault();
-    buttons[(next + buttons.length) % buttons.length].click();
-  });
-}
+$('slr-range').addEventListener('input', (e) => {
+  state.slrIndex = +e.target.value;
+  setFill(e.target);
+  queueRender();
+});
+$('hour-range').addEventListener('input', (e) => {
+  stopPlay();
+  state.hour = +e.target.value;
+  setFill(e.target);
+  renderFloodView();
+});
+$('tm-play').addEventListener('click', () => (state.playing ? stopPlay() : startPlay()));
 $('details').addEventListener('change', (e) => {
   if (e.target.id !== 'station-select') return;
   state.selectedStation = e.target.value;
@@ -496,7 +958,8 @@ $('ranking').addEventListener('click', (e) => {
   const i = AREAS.findIndex((a) => a.id === b.dataset.id);
   const r = assessPlace(h, AREAS[i], inputs, i);
   const available = !(isLive() && !state.liveLoaded) && hasData(h, inputs);
-  $('map').scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+  // the map is sticky beside the table on wide screens, so this only scrolls on phones
+  $('map').scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'nearest' });
   mapView.flyTo(AREAS[i].lat, AREAS[i].lon);
   mapView.openPopupAt(AREAS[i].lat, AREAS[i].lon, areaPopupHtml(h, r, available));
 });
@@ -511,11 +974,48 @@ $('report').addEventListener('click', (e) => {
   mapView.clearPoint();
   renderPoint();
 });
+$('dash-tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('[role="tab"]');
+  if (b) selectTab(b.id.replace('tab-', ''));
+});
+$('dash-tabs').addEventListener('keydown', (e) => {
+  const i = TABS.indexOf(state.tab);
+  const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: TABS.length - 1 }[e.key];
+  if (next == null) return;
+  e.preventDefault();
+  selectTab(TABS[(next + TABS.length) % TABS.length], true);
+});
+$('view-toggle').addEventListener('click', () => setView(state.view === 'story' ? 'dashboard' : 'story'));
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-view]');
+  if (b && b.tagName === 'BUTTON') setView(b.dataset.view);
+});
+for (const id of ['open-compare', 'compare-inline']) $(id).addEventListener('click', openCompare);
+$('compare-close').addEventListener('click', () => $('compare').close());
+$('compare').addEventListener('click', (e) => {
+  if (e.target === $('compare')) $('compare').close(); // a click on the backdrop
+});
+for (const side of ['a', 'b']) {
+  $(`cmp-${side}`).addEventListener('change', (e) => {
+    state.compare[side] = e.target.value;
+    renderCompare();
+  });
+}
+$('cmp-swap').addEventListener('click', () => {
+  state.compare = { a: state.compare.b, b: state.compare.a };
+  renderCompare();
+});
+$('cmp-presets').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-a]');
+  if (!b) return;
+  state.compare = { a: b.dataset.a, b: b.dataset.b };
+  renderCompare();
+});
 window.addEventListener('hashchange', () => {
   if (readHash()) setHazard(state.hazard);
 });
 
-// theme: the button names the theme you'd switch to
+// theme: the button names the theme you'd switch to. The map needs nothing: CSS re-filters the same tiles.
 function effectiveTheme() {
   return document.documentElement.dataset.theme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 }
@@ -531,18 +1031,18 @@ $('theme-toggle').addEventListener('click', () => {
   } catch {
     // storage blocked: the choice lasts for this visit
   }
-  mapView.setTheme(next);
   story.setTheme(next);
   syncThemeButton();
+  renderFloodView(); // the overlay's colors come from the theme
 });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
   if (document.documentElement.dataset.theme) return;
-  mapView.setTheme(effectiveTheme());
   story.setTheme(effectiveTheme());
   syncThemeButton();
+  renderFloodView();
 });
 
-// ---------------- 3D: only after first paint, and only where it will run well ----------------
+// ---------------- 3D: only when the story view opens, and only where it will run well ----------------
 
 function prefersStills() {
   const q = new URLSearchParams(location.search);
@@ -591,18 +1091,26 @@ renderHero();
 renderStoryTable(storyFor(state.hazard));
 
 mapView.createMap($('map'), {
-  theme: effectiveTheme(),
   onClick: (lat, lon) => {
     const area = AREAS[nearestAreaIndex(lat, lon)];
     checkPoint({ lat, lon, label: `A spot near ${area.name}`, borough: null, needsName: true });
   },
 });
 renderLayers();
-const checklist = initChecklist(state.hazard);
+fillCompareSelects();
+const checklist = initChecklist(state.hazard, {
+  onProgress: (done, total) => {
+    $('ready-count').textContent = `${done}/${total}`;
+  },
+});
 renderSeaLevel();
 renderMethodology(state.hazard);
+selectTab('ranking');
 renderApp();
-mapView.loadNtas().then(() => renderApp());
+const ntaLoad = mapView.loadNtas().then((features) => {
+  renderApp();
+  return features;
+});
 // the map box can change size after fonts load; reframe the city when it first scrolls into view
 new IntersectionObserver((entries, obs) => {
   if (entries.some((e) => e.isIntersecting)) {
@@ -613,12 +1121,24 @@ new IntersectionObserver((entries, obs) => {
 wireSearch('address-form', 'address-input', 'address-results', { scroll: true });
 wireSearch('address-form-2', 'address-input-2', 'address-results-2', { scroll: false });
 
-story.start();
-(window.requestIdleCallback || ((f) => setTimeout(f, 200)))(startStage);
 loadLive();
 setInterval(() => {
   if (!document.hidden) loadLive();
 }, REFRESH_MS);
+
+// the elevation grid (290 KB) powers the time machine's flood map, higher ground and the comparison
+Promise.all([loadTerrain(), ntaLoad])
+  .then(([grid, features]) => {
+    terrain = prepareTerrain(grid, features);
+    state.status.elevation = { ok: true };
+    renderApp();
+    if (state.point && state.point.refuge.center !== undefined) drawRefuge();
+  })
+  .catch((err) => {
+    console.warn('[DrainWatch] elevation map failed to load', err);
+    state.status.elevation = { ok: false, message: 'offline' };
+    renderSources(SOURCES, state.status);
+  });
 
 // optional extra heat drivers (tree canopy, air conditioning) from scripts/import-heat-drivers.mjs
 fetch('data/heat-drivers.json')

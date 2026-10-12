@@ -68,7 +68,8 @@ function saveChecked(set) {
   }
 }
 
-export function initChecklist(initialHazard = 'heat') {
+/** onProgress(done, total) runs whenever a box changes, e.g. to badge the "Be ready" tab. */
+export function initChecklist(initialHazard = 'heat', { onProgress = () => {} } = {}) {
   const checked = loadChecked();
   let active = initialHazard;
   const tabs = document.getElementById('prep-tabs');
@@ -87,6 +88,7 @@ export function initChecklist(initialHazard = 'heat') {
   function renderProgress() {
     const done = HAZARD_ORDER.reduce((n, h) => n + doneIn(h), 0);
     progress.innerHTML = `<b>${done}</b> of ${total} steps done${done === total ? '. You are ready; share this with a neighbor.' : '.'}`;
+    onProgress(done, total);
   }
 
   function renderList() {

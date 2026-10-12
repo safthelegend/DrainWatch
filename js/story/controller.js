@@ -516,12 +516,19 @@ export function createStoryController({ theme, onStoryChange } = {}) {
   function start() {
     if (running) return;
     running = true;
-    useScrollTrigger();
+    if (!triggers) useScrollTrigger();
+    else window.ScrollTrigger.refresh();
+    if (story) drawStrip(); // the strip may have been measured while hidden
     requestAnimationFrame(loop);
   }
 
+  /** Stop the frame loop while the story is hidden (the dashboard view): no scroll reads, no WebGL frames. */
+  function pause() {
+    running = false;
+  }
+
   window.addEventListener('resize', () => {
-    if (story) drawStrip();
+    if (story && running) drawStrip();
   });
 
   return {
@@ -530,6 +537,10 @@ export function createStoryController({ theme, onStoryChange } = {}) {
     attachStage,
     useStills,
     start,
+    pause,
+    get running() {
+      return running;
+    },
     get story() {
       return story;
     },
