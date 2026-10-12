@@ -1,4 +1,4 @@
-// The scroll story's pure parts: projection, sun, camera paths and the
+// The 3D story's pure parts: projection, sun, camera paths and the
 // data-driven story copy. Run with:  node --test
 
 import { test } from 'node:test';

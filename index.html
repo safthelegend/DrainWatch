@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>DrainWatch: How climate risk hits New York, block by block</title>
-    <meta name="description" content="Replay Hurricane Sandy, the 2019 heat wave and the 2023 wildfire smoke in 3D, then check flood, heat, air and wind risk for any New York City address, live." />
+    <meta name="description" content="Check flood, heat, air and wind risk for any New York City address, live. Compare neighborhoods, find higher ground, and replay Hurricane Sandy on top of 2080s sea levels." />
     <meta name="theme-color" content="#F6F3EC" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0F0F0E" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23141414'/><text x='16' y='24' font-family='Georgia,serif' font-size='22' text-anchor='middle' fill='%23F6F3EC'>D</text></svg>" />
@@ -25,7 +25,7 @@
     </script>
   </head>
   <body data-hazard="heat">
-    <a class="skip" href="#app">Skip to the address check and map</a>
+    <a class="skip" href="#check">Skip to the address check</a>
 
     <header class="masthead">
       <a class="wordmark" href="#top">DrainWatch</a>
@@ -36,116 +36,98 @@
         <a href="#wind" data-hazard="wind">Wind</a>
       </nav>
       <p class="status" id="status" aria-live="polite">Connecting to live data…</p>
-      <button type="button" class="theme-toggle" id="theme-toggle">Dark</button>
+      <div class="mast-actions">
+        <button type="button" class="chip" id="compare-open" aria-haspopup="dialog">Compare</button>
+        <button type="button" class="chip" data-tab-link="ready">Be ready</button>
+        <button type="button" class="chip chip-ink" id="story-open" aria-haspopup="dialog">3D story</button>
+        <button type="button" class="theme-toggle" id="theme-toggle">Dark</button>
+      </div>
     </header>
 
-    <!-- One canvas for the whole story. Purely visual: every fact in it is also in the text. -->
-    <div class="sky" id="sky" aria-hidden="true"></div>
-    <canvas id="stage" aria-hidden="true"></canvas>
-    <img class="still" id="still" alt="" aria-hidden="true" hidden />
-    <svg class="leader" id="leader" aria-hidden="true"><line x1="0" y1="0" x2="0" y2="0" /><circle r="4" /></svg>
-
-    <main>
-      <!-- 1. Hero -->
-      <section class="hero" id="top" aria-labelledby="hero-head">
-        <div class="hero-text">
-          <p class="label" id="hero-kicker">July 20, 2019</p>
-          <p class="mega" id="hero-mega"><span class="mega-num">106</span><span class="mega-unit">°F</span></p>
-          <p class="mega-label" id="hero-mega-label">feels like</p>
-          <h1 class="display" id="hero-head">New York's hottest weekend in years. At night, it never dropped below 80.</h1>
-        </div>
-
-        <form class="address address-hero" id="address-form" role="search" autocomplete="off">
-          <label class="label" for="address-input">Check your address, right now</label>
-          <div class="address-row">
-            <input id="address-input" type="search" placeholder="160 Van Brunt St, Brooklyn" />
-            <button type="submit">Check</button>
+    <main class="dash" id="top">
+      <!-- The map stays in view (sticky) while the cards beside it scroll. -->
+      <section class="dash-map" aria-label="Risk map">
+        <div class="map-shell">
+          <div class="map" id="map" role="region" aria-label="Map of neighborhood risk. The Neighborhoods tab lists the same information."></div>
+          <div class="map-stack">
+            <p class="map-float tm-badge" id="tm-badge" hidden></p>
+            <details class="map-float layers-box" id="layers-box" open hidden>
+              <summary class="label">Map layers</summary>
+              <fieldset class="layers" id="layers">
+                <legend class="sr-only">Map layers</legend>
+              </fieldset>
+            </details>
           </div>
-          <div class="address-results" id="address-results"></div>
-          <p class="live-line" id="live-line">Loading live conditions…</p>
-          <p class="also" id="also-line" hidden></p>
-        </form>
-
-        <p class="scroll-cue" id="scroll-cue"><span>Scroll for the story</span> <a href="#app">or skip to the map</a></p>
-      </section>
-
-      <!-- 2. Pinned timeline: scroll scrubs hour by hour -->
-      <section class="chapter chapter-timeline" id="timeline" aria-labelledby="timeline-title">
-        <div class="pin">
-          <div class="side">
-            <p class="label" id="timeline-kicker">72 hours</p>
-            <h2 class="h2" id="timeline-title">Three days, and nights that never cooled off</h2>
-            <p class="dek" id="timeline-dek"></p>
-            <p class="clock" aria-hidden="true"><span id="clock-time">Friday, midnight</span></p>
-            <p class="readout" aria-hidden="true"><span class="readout-num" id="readout-num">—</span><span class="readout-unit" id="readout-unit"></span></p>
-            <ol class="beats" id="beats"></ol>
-            <p class="modeled" id="timeline-note">Modeled from 39 neighborhoods. Approximate reconstruction from NOAA and NWS records.</p>
-          </div>
-          <figure class="timeline-strip" aria-hidden="true">
-            <svg id="timeline-svg" preserveAspectRatio="none"></svg>
-          </figure>
+          <div class="map-float map-legend" id="legend"></div>
         </div>
       </section>
 
-      <!-- 3. Pinned "who's exposed": the camera visits the worst-hit neighborhoods -->
-      <section class="chapter chapter-exposed" id="exposed" aria-labelledby="exposed-title">
-        <div class="pin">
-          <div class="side">
-            <p class="label" id="exposed-kicker">Who's exposed</p>
-            <h2 class="h2" id="exposed-title">The same heat is not equally dangerous everywhere</h2>
-            <p class="dek" id="exposed-dek"></p>
-            <ol class="stops" id="stops"></ol>
-            <p class="modeled" id="exposed-note"></p>
-          </div>
-          <div class="annotation" id="annotation" aria-hidden="true"></div>
-        </div>
-      </section>
-
-      <!-- 4. Release: the everyday app. No scroll effects from here on. -->
-      <section class="app" id="app" aria-labelledby="app-title">
-        <header class="app-head">
-          <div class="app-figure">
-            <p class="label" id="app-kicker">Right now · Heat</p>
+      <div class="dash-panel">
+        <!-- Right now: the one number that matters, in plain words -->
+        <section class="card card-now" aria-labelledby="app-title">
+          <p class="label" id="app-kicker">Right now · Heat</p>
+          <div class="now-row">
             <p class="mega mega-app" id="app-mega"><span class="mega-num">—</span><span class="mega-unit"></span></p>
             <p class="mega-label" id="app-mega-label"></p>
           </div>
-          <div class="app-summary">
-            <h2 class="h2" id="app-title">Checking conditions across the city…</h2>
-            <p class="dek" id="app-dek"></p>
-            <p class="note context" id="app-context"></p>
-            <div class="modes">
-              <p class="label" id="mode-label">Showing</p>
-              <div class="mode-list" id="mode-list" role="radiogroup" aria-labelledby="mode-label"></div>
+          <h1 class="h2" id="app-title">Checking conditions across the city…</h1>
+          <p class="dek" id="app-dek"></p>
+          <p class="note context" id="app-context"></p>
+          <p class="also" id="also-line" hidden></p>
+          <button type="button" class="story-cta" id="story-cta" aria-haspopup="dialog">
+            <span class="label" id="cta-kicker">3D replay</span>
+            <span class="cta-mega" id="cta-mega"></span>
+            <span class="cta-head" id="cta-head"></span>
+            <span class="cta-go">Play the story ▶</span>
+          </button>
+        </section>
+
+        <!-- Address check, with the refuge quick-finder -->
+        <section class="card" id="check" aria-labelledby="check-title">
+          <form class="address" id="address-form" role="search" autocomplete="off">
+            <label class="card-title" id="check-title" for="address-input">Check an address</label>
+            <p class="note">Risk for all four hazards, the official evacuation zone, and the nearest higher ground.</p>
+            <div class="address-row">
+              <input id="address-input" type="search" placeholder="160 Van Brunt St, Brooklyn" />
+              <button type="submit">Check</button>
             </div>
-            <div class="slr" id="slr" hidden>
-              <p class="label" id="slr-label">Sea level</p>
-              <div class="mode-list" id="slr-list" role="radiogroup" aria-labelledby="slr-label"></div>
-              <p class="note" id="slr-note"></p>
+            <div class="address-results" id="address-results"></div>
+            <p class="note hint">Or click anywhere on the map.</p>
+          </form>
+          <div id="report" class="report-wrap" aria-live="polite"></div>
+        </section>
+
+        <!-- Climate Time Machine: replays and sea level rise -->
+        <section class="card card-tm" id="time-machine" aria-labelledby="tm-title">
+          <div class="card-head">
+            <h2 class="card-title" id="tm-title">Climate Time Machine</h2>
+            <button type="button" class="preset" id="tm-preset">Sandy + 2080s seas</button>
+          </div>
+          <div class="modes">
+            <p class="label" id="mode-label">Conditions</p>
+            <div class="mode-list" id="mode-list" role="radiogroup" aria-labelledby="mode-label"></div>
+          </div>
+          <div class="slr" id="slr" hidden>
+            <div class="slr-top">
+              <label class="label" for="slr-range">Sea level rise</label>
+              <output class="slr-out" id="slr-out" for="slr-range">+0 in</output>
             </div>
+            <input type="range" id="slr-range" min="0" max="75" step="1" value="0" />
+            <div class="slr-stops" id="slr-stops"></div>
+            <p class="note" id="slr-note"></p>
           </div>
-        </header>
+          <div class="tm-delta" id="tm-delta"></div>
+        </section>
 
-        <form class="address address-inline" id="address-form-2" role="search" autocomplete="off">
-          <label class="label" for="address-input-2">Check an address</label>
-          <div class="address-row">
-            <input id="address-input-2" type="search" placeholder="Any address in the five boroughs" />
-            <button type="submit">Check</button>
+        <!-- Explore: tabs instead of long sections -->
+        <section class="card card-tabs" id="explore" aria-label="Explore">
+          <div class="tabs" role="tablist" aria-label="Explore" id="explore-tabs">
+            <button type="button" role="tab" id="tab-ranking" aria-controls="panel-ranking" aria-selected="true" data-tab="ranking">Neighborhoods</button>
+            <button type="button" role="tab" id="tab-forecast" aria-controls="panel-forecast" aria-selected="false" tabindex="-1" data-tab="forecast">Forecast &amp; alerts</button>
+            <button type="button" role="tab" id="tab-ready" aria-controls="panel-ready" aria-selected="false" tabindex="-1" data-tab="ready">Be ready</button>
           </div>
-          <div class="address-results" id="address-results-2"></div>
-        </form>
-        <div id="report" class="report-wrap" aria-live="polite"></div>
 
-        <div class="map-bar">
-          <div class="legend" id="legend"></div>
-          <fieldset class="layers" id="layers">
-            <legend class="label">Map layers</legend>
-          </fieldset>
-        </div>
-        <div class="map" id="map" role="region" aria-label="Map of neighborhood risk. The table below lists the same information."></div>
-
-        <div class="app-grid">
-          <section class="ranking" aria-labelledby="ranking-title">
-            <h3 class="h3" id="ranking-title">Neighborhoods</h3>
+          <div class="tab-panel" role="tabpanel" id="panel-ranking" aria-labelledby="tab-ranking">
             <p class="note" id="ranking-note"></p>
             <table class="table" id="ranking">
               <thead>
@@ -154,32 +136,39 @@
               <tbody></tbody>
             </table>
             <button type="button" class="more" id="ranking-more">Show all neighborhoods</button>
-          </section>
-          <aside class="details" id="details" aria-label="Forecast and alerts"></aside>
-        </div>
-      </section>
+          </div>
 
-      <section class="essay" id="ready" aria-labelledby="ready-title">
-        <p class="label">Be ready</p>
-        <h2 class="h2" id="ready-title">What to do before it happens</h2>
-        <p class="dek">Small steps that save lives in New York's most common disasters. Check off what you've done; it stays in this browser only.</p>
-        <p class="progress" id="prep-progress" aria-live="polite"></p>
-        <div class="prep-nav" id="prep-tabs" role="tablist" aria-label="Checklist by hazard"></div>
-        <ul class="checklist" id="checklist" role="tabpanel"></ul>
-      </section>
+          <div class="tab-panel details" role="tabpanel" id="panel-forecast" aria-labelledby="tab-forecast" hidden>
+            <div id="details"></div>
+          </div>
 
-      <section class="essay" id="method" aria-labelledby="method-title">
+          <div class="tab-panel" role="tabpanel" id="panel-ready" aria-labelledby="tab-ready" hidden>
+            <p class="note">Small steps that save lives in New York's most common disasters. Check off what you've done; it stays in this browser only.</p>
+            <p class="progress" id="prep-progress" aria-live="polite"></p>
+            <div class="prep-nav" id="prep-tabs" role="tablist" aria-label="Checklist by hazard"></div>
+            <ul class="checklist" id="checklist" role="tabpanel"></ul>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <section class="method" id="method" aria-labelledby="method-title">
+      <div class="method-intro">
         <p class="label">How it works</p>
         <h2 class="h2" id="method-title">Public data in, a plain-language risk level out</h2>
-        <div class="method-body">
-          <p>
-            Every 15 minutes DrainWatch reads tide gauges, forecasts, weather alerts and 311 reports from free government and open-data sources. No API keys, no tracking.
-            For each hazard, a short, tested set of rules scores <em>how bad conditions will get</em> and scales it by <em>how exposed each neighborhood is</em>,
-            then names the result: Low, Elevated, High or Severe.
-          </p>
-          <p class="formula">risk = hazard (0–4) × exposure + alerts</p>
+        <p class="dek">
+          Every 15 minutes DrainWatch reads tide gauges, forecasts, weather alerts and 311 reports from free government and open-data sources. No API keys, no tracking.
+          For each hazard, a short, tested set of rules scores <em>how bad conditions will get</em> and scales it by <em>how exposed each neighborhood is</em>.
+        </p>
+        <p class="formula">risk = hazard (0–4) × exposure + alerts</p>
+      </div>
+      <div class="method-grid">
+        <div class="method-card">
+          <h3 class="card-title">The four models</h3>
           <div id="methodology" class="method-list"></div>
-          <h3 class="h3">Sea level rise, projected for New York</h3>
+        </div>
+        <div class="method-card">
+          <h3 class="card-title">Sea level rise, projected for New York</h3>
           <figure class="slr-figure">
             <div id="slr-chart"></div>
             <figcaption class="note">Bars: likely range (25th–75th percentile). Ring: high-end estimate (90th percentile). Inches above the 2000–2004 average. Source: NYC Panel on Climate Change, 2019.</figcaption>
@@ -191,32 +180,104 @@
               </table>
             </div>
           </figure>
-          <h3 class="h3">Sources</h3>
+        </div>
+        <div class="method-card">
+          <h3 class="card-title">Sources</h3>
           <ul class="sources" id="sources"></ul>
           <details class="story-data">
             <summary>The replay's numbers, hour by hour</summary>
             <div id="story-table"></div>
           </details>
-          <p class="disclaimer">
-            <strong>DrainWatch is an educational tool, not an official warning system.</strong> In an emergency follow
-            <a href="https://www.nyc.gov/notifynyc" target="_blank" rel="noopener">Notify NYC</a> and the
-            <a href="https://www.weather.gov/okx/" target="_blank" rel="noopener">National Weather Service</a>, and call 911 if you are in danger.
-          </p>
         </div>
-      </section>
-    </main>
+      </div>
+      <p class="disclaimer">
+        <strong>DrainWatch is an educational tool, not an official warning system.</strong> In an emergency follow
+        <a href="https://www.nyc.gov/notifynyc" target="_blank" rel="noopener">Notify NYC</a> and the
+        <a href="https://www.weather.gov/okx/" target="_blank" rel="noopener">National Weather Service</a>, and call 911 if you are in danger.
+      </p>
+    </section>
 
     <footer class="footer">
       <p class="wordmark">DrainWatch</p>
       <p>Built for New Yorkers, for the Congressional App Challenge. Data from NOAA, the National Weather Service, Open-Meteo, NYC Open Data, FEMA, USGS and the NYC Health Department.
-        Map © OpenStreetMap contributors © CARTO. <a href="https://github.com/sonamt17/drainwatch" target="_blank" rel="noopener">Source code</a>.</p>
+        Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors. <a href="https://github.com/sonamt17/drainwatch" target="_blank" rel="noopener">Source code</a>.</p>
     </footer>
+
+    <!-- The 3D story: opt-in, full screen, stepped with buttons, the scrubber or the arrow keys. -->
+    <div class="story" id="story" role="dialog" aria-modal="true" aria-labelledby="story-title" hidden>
+      <div class="sky" id="sky" aria-hidden="true"></div>
+      <canvas id="stage" aria-hidden="true"></canvas>
+      <img class="still" id="still" alt="" aria-hidden="true" hidden />
+      <svg class="leader" id="leader" aria-hidden="true"><line x1="0" y1="0" x2="0" y2="0" /><circle r="4" /></svg>
+      <div class="annotation" id="annotation" aria-hidden="true"></div>
+
+      <div class="story-side" data-chapter="timeline" id="story-side">
+        <div class="story-top">
+          <p class="label" id="story-title">The story in 3D</p>
+          <button type="button" class="story-close" id="story-close" aria-label="Close the story">Close ✕</button>
+        </div>
+        <div class="chapter-tabs" role="tablist" aria-label="Chapters">
+          <button type="button" role="tab" data-chapter="timeline" aria-selected="true">1 · The timeline</button>
+          <button type="button" role="tab" data-chapter="exposed" aria-selected="false" tabindex="-1">2 · Who's exposed</button>
+        </div>
+
+        <div class="chapter chapter-timeline" aria-live="polite">
+          <p class="label" id="timeline-kicker">72 hours</p>
+          <h2 class="h2" id="timeline-title">Three days, and nights that never cooled off</h2>
+          <p class="dek" id="timeline-dek"></p>
+          <p class="clock"><span id="clock-time">Friday, midnight</span></p>
+          <p class="readout" aria-hidden="true"><span class="readout-num" id="readout-num">—</span><span class="readout-unit" id="readout-unit"></span></p>
+          <ol class="beats" id="beats"></ol>
+          <p class="modeled" id="timeline-note">Modeled from 39 neighborhoods. Approximate reconstruction from NOAA and NWS records.</p>
+        </div>
+
+        <div class="chapter chapter-exposed" aria-live="polite">
+          <p class="label" id="exposed-kicker">Who's exposed</p>
+          <h2 class="h2" id="exposed-title">The same heat is not equally dangerous everywhere</h2>
+          <p class="dek" id="exposed-dek"></p>
+          <ol class="stops" id="stops"></ol>
+          <p class="modeled" id="exposed-note"></p>
+        </div>
+
+        <div class="player">
+          <button type="button" class="player-btn" id="story-prev" aria-label="Previous step">◀</button>
+          <button type="button" class="player-btn player-play" id="story-play" aria-label="Play">▶ Play</button>
+          <button type="button" class="player-btn" id="story-next" aria-label="Next step">▶</button>
+          <input type="range" class="player-range" id="story-range" min="0" max="2000" step="1" value="0" aria-label="Story position" />
+          <p class="player-hint">← → to step · space to play · Esc to close</p>
+        </div>
+      </div>
+      <figure class="timeline-strip" aria-hidden="true">
+        <svg id="timeline-svg" preserveAspectRatio="none"></svg>
+      </figure>
+    </div>
+
+    <!-- Neighborhood vs. neighborhood -->
+    <dialog class="compare" id="compare" aria-labelledby="compare-title">
+      <form method="dialog" class="compare-inner">
+        <div class="compare-head">
+          <div>
+            <p class="label" id="compare-mode">Live now</p>
+            <h2 class="h2" id="compare-title">Neighborhood vs. neighborhood</h2>
+          </div>
+          <button class="story-close" value="close" aria-label="Close comparison">Close ✕</button>
+        </div>
+        <div class="compare-pick">
+          <label><span class="label">A</span><select id="compare-a"></select></label>
+          <button type="button" class="swap" id="compare-swap" aria-label="Swap the two neighborhoods">⇄</button>
+          <label><span class="label">B</span><select id="compare-b"></select></label>
+        </div>
+        <div class="compare-presets" id="compare-presets"></div>
+        <div class="compare-body" id="compare-body" aria-live="polite"></div>
+        <div class="compare-foot">
+          <button type="button" class="btn" id="compare-map">Show both on the map</button>
+        </div>
+      </form>
+    </dialog>
 
     <div id="chart-tip" class="chart-tip" role="presentation" hidden></div>
 
     <script src="vendor/leaflet/leaflet.js"></script>
-    <script src="vendor/gsap/gsap.min.js" defer></script>
-    <script src="vendor/gsap/ScrollTrigger.min.js" defer></script>
     <script type="module" src="js/app.js"></script>
   </body>
 </html>

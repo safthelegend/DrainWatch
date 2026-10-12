@@ -1,7 +1,7 @@
 // Camera poses and paths for the 3D story. A pose is map-like:
 //   { lon, lat, dist (km from camera to target), bearing (compass degrees the
 //     camera faces), tilt (degrees from straight down) }
-// Scroll progress picks a point on a path of keyframes; nothing here touches
+// Story progress picks a point on a path of keyframes; nothing here touches
 // the DOM or WebGL, so it is unit-tested.
 
 import { project } from './geo.js';
@@ -62,7 +62,7 @@ export function poseAt(path, p) {
 }
 
 /**
- * Pinned "step" sections: step i owns the slice [i/n, (i+1)/n] of the scroll.
+ * Story steps: step i owns the slice [i/n, (i+1)/n] of the story.
  * The camera flies from the previous pose during the first `fly` share of the
  * slice, then holds still so the reader can read the annotation.
  */

@@ -95,6 +95,35 @@ export const SEA_LEVEL_STOPS = [
   })),
 ];
 
+/** The Time Machine slider runs to the NPCC high-end estimate for 2100. */
+export const SLR_MAX_INCHES = Math.max(...SEA_LEVEL_PROJECTIONS.map((p) => p.highEnd));
+
+/** The named stop at exactly this many inches, if any. */
+export function seaLevelStopFor(inches) {
+  return SEA_LEVEL_STOPS.find((s) => s.inches === inches) || null;
+}
+
+/** The earliest period ("2080s") whose likely range includes this rise, or null. */
+export function seaLevelPeriod(inches) {
+  if (!inches) return null;
+  const hit = SEA_LEVEL_PROJECTIONS.find((p) => inches >= p.low && inches <= p.high);
+  return hit ? hit.period : null;
+}
+
+const periodName = (period) => (/s$/.test(period) ? `the ${period}` : period);
+
+/** One plain sentence placing a rise against the NYC Panel on Climate Change projections. */
+export function seaLevelNote(inches) {
+  if (!inches) return 'Drag to raise the sea to the levels projected for later this century. Every water level on the map rises with it.';
+  const stop = seaLevelStopFor(inches);
+  if (stop) return `+${inches} in is the middle of the NYC Panel on Climate Change's likely range for ${periodName(stop.label)} (high-end estimate: ${stop.highEnd} in).`;
+  const within = SEA_LEVEL_PROJECTIONS.filter((p) => inches >= p.low && inches <= p.high).map((p) => `${periodName(p.period)} (${p.low}–${p.high} in)`);
+  if (within.length) return `+${inches} in is within the likely range for ${within.join(' and ')}.`;
+  const top = SEA_LEVEL_PROJECTIONS[SEA_LEVEL_PROJECTIONS.length - 1];
+  if (inches > top.high) return `+${inches} in is above every likely range; it is the kind of rise the high-end estimates allow (${top.highEnd} in by ${top.period}).`;
+  return `+${inches} in is less than the 2020s likely range.`;
+}
+
 /** Raise every water level (observed, predicted and peak) by `inches` of sea level rise. */
 export function withSeaLevelRise(tides, inches) {
   if (!inches) return tides;
@@ -323,7 +352,7 @@ function tideParams(spec) {
 
 /**
  * Hour-by-hour values for every neighborhood over any window of a replay, for
- * the scroll-driven story: heat index, temperature, rain, gusts, AQI and the
+ * the 3D story: heat index, temperature, rain, gusts, AQI and the
  * water level at each tide gauge (ft above MHHW).
  */
 export function scenarioHourly(id, fromKey, hours) {

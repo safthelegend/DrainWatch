@@ -1,4 +1,4 @@
-// The scroll story for each hazard: which replay it tells, the hour-by-hour
+// The 3D story for each hazard: which replay it tells, the hour-by-hour
 // numbers, the beats of text and the neighborhoods it visits. Every number in
 // the copy is computed from the replay data, never typed in. Pure: no DOM, no WebGL.
 
@@ -50,7 +50,7 @@ export const STORIES = {
     timeline: {
       kicker: '72 hours',
       title: 'Three days, and nights that never cooled off',
-      dek: 'Scroll to move through the heat wave hour by hour. Each neighborhood rises and reddens with how hot it felt.',
+      dek: 'Play or drag through the heat wave hour by hour. Each neighborhood rises and reddens with how hot it felt.',
     },
     beats: [
       { at: '2019-07-19T15:00', write: (c) => `${lead(c.key)} It already feels like ${r0(c.value)}°F in the hottest neighborhoods.` },
@@ -89,7 +89,7 @@ export const STORIES = {
     timeline: {
       kicker: 'One night',
       title: 'The harbor rose all day, then poured into the city',
-      dek: 'Scroll to raise the harbor to its measured level at each hour. Land below the waterline turns to sea.',
+      dek: 'Play or drag to raise the harbor to its measured level at each hour. Land below the waterline turns to sea.',
     },
     beats: [
       { at: '2012-10-29T08:00', write: (c) => `${lead(c.key)} Sandy is still offshore. The water at the Battery is already ${r1(c.value)} ft above a normal high tide.` },
@@ -129,7 +129,7 @@ export const STORIES = {
     timeline: {
       kicker: 'Two days',
       title: 'The smoke rolled in, and stayed',
-      dek: "Scroll through June 7 and 8. The haze thickens with each hour's Air Quality Index.",
+      dek: "Play or drag through June 7 and 8. The haze thickens with each hour's Air Quality Index.",
     },
     beats: [
       { at: '2023-06-07T09:00', write: (c) => `${lead(c.key)} AQI ${r0(c.value)}: "${aqiCategory(c.value)}." Schools cancel outdoor activities.` },
@@ -165,7 +165,7 @@ export const STORIES = {
     timeline: {
       kicker: 'One afternoon',
       title: 'The wind built for six hours, then let go',
-      dek: 'Scroll through the day. Each neighborhood rises with its strongest gust.',
+      dek: 'Play or drag through the day. Each neighborhood rises with its strongest gust.',
     },
     beats: [
       { at: '2020-08-04T08:00', write: (c) => `${lead(c.key)} Gusts of ${r0(c.value)} mph as Isaias races up the coast toward the city.` },

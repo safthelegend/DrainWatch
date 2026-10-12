@@ -22,17 +22,17 @@ const browser = await chromium.launch({
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
 
-/** Scroll targets for each shot, as [section id, progress through it]. */
+/** Story positions for each shot (0–1 the timeline, 1–2 who's exposed), matching the controller's steps. */
 function shots(story) {
-  const list = [['hero', 'top', 0]];
+  const list = [['hero', 0]];
   const last = story.time.length - 1;
   story.beats.forEach((b, i) => {
     let p;
     if (story.hazard === 'floods') p = b.slr ? 1 : (b.index / story.peak.index) * 0.78;
     else p = (b.index + 0.4) / last;
-    list.push([`beat-${i}`, 'timeline', Math.min(1, p)]);
+    list.push([`beat-${i}`, Math.min(1, p)]);
   });
-  story.stops.forEach((_, i) => list.push([`stop-${i}`, 'exposed', (i + 0.85) / story.stops.length]));
+  story.stops.forEach((_, i) => list.push([`stop-${i}`, 1 + (i + 0.85) / story.stops.length]));
   return list;
 }
 
@@ -43,17 +43,16 @@ for (const theme of ['light', 'dark']) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: theme, reducedMotion: 'reduce' });
     const page = await ctx.newPage();
     await page.goto(`${base}/?3d#${hazard}`);
+    await page.click('#story-open');
     await page.waitForFunction(() => document.body.classList.contains('has-stage'), null, { timeout: 30000 });
-    await page.addStyleTag({ content: 'main, .masthead, .leader, .footer { visibility: hidden !important; }' });
-    for (const [name, section, p] of shots(story)) {
-      await page.evaluate(
-        ([section, p]) => {
-          const el = document.getElementById(section);
-          const top = el.getBoundingClientRect().top + window.scrollY;
-          window.scrollTo(0, top + Math.max(0, el.offsetHeight - window.innerHeight) * p);
-        },
-        [section, p],
-      );
+    await page.addStyleTag({ content: '.story-side, .timeline-strip, .leader, .annotation { visibility: hidden !important; }' });
+    for (const [name, p] of shots(story)) {
+      // the scrubber drives the same seek() the buttons and Play use
+      await page.evaluate((v) => {
+        const range = document.getElementById('story-range');
+        range.value = String(Math.round(v * 1000));
+        range.dispatchEvent(new Event('input', { bubbles: true }));
+      }, p);
       await page.waitForTimeout(1500);
       const file = new URL(`${hazard}-${theme}-${name}.jpg`, out);
       await page.locator('#stage').screenshot({ path: file.pathname, type: 'jpeg', quality: 68 });

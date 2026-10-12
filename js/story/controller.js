@@ -1,9 +1,10 @@
-// Drives the scroll story: reads how far the reader has scrolled through each
-// section (pin-and-scrub only; scroll speed is never touched) and turns it into
-// a camera pose, a replay hour and the text on screen.
+// Drives the 3D story, which plays in its own full-screen overlay: a position
+// from 0 to 2 (0–1 the timeline, 1–2 "who's exposed") comes from the scrubber,
+// the step buttons, the keyboard or Play, never from page scroll. The position
+// becomes a camera pose, a replay hour and the text on screen.
 //
 // Works in three modes:
-//   • 3D: the WebGL stage (lazy-loaded)
+//   • 3D: the WebGL stage (lazy-loaded the first time the story opens)
 //   • stills: pre-rendered images when WebGL is unavailable or the device is low-power
 //   • reduced motion: no camera flights or drift; each step cross-fades instead
 
@@ -32,7 +33,6 @@ const HARBOR = {
   stepTilt: 40,
 };
 const CAMERAS = { heat: CITY, air: CITY, wind: CITY, floods: HARBOR };
-const HANDOFF = { lon: -73.94, lat: 40.7, dist: 70, bearing: 0, tilt: 1 };
 
 // reference line on the timeline strip
 const REFERENCE = {
@@ -44,15 +44,19 @@ const REFERENCE = {
 
 const SLR_SHARE = 0.22; // the last share of the flood timeline raises the sea instead of the clock
 
-export function createStoryController({ theme, onStoryChange } = {}) {
+export function createStoryController({ theme, onStoryChange, onPosition } = {}) {
   let stage = null;
   let mode = 'text'; // 'text' until the stage or stills are ready
   let story = null;
   let blend = null;
   let hazard = null;
   let currentTheme = theme;
-  const target = { hero: 0, timeline: 0, exposed: 0, release: 0 };
+  const target = { hero: 0, timeline: 0, exposed: 0 };
   const shown = { ...target };
+  let pos = 0; // 0–1 the timeline, 1–2 who's exposed
+  let playing = false;
+  let lastTime = 0;
+  let nextStepAt = 0;
   let lastShot = null;
   let running = false;
   let lastStep = -1;
@@ -262,14 +266,7 @@ export function createStoryController({ theme, onStoryChange } = {}) {
     let slr = 0;
     let shot = 'hero';
 
-    if (p.release > 0) {
-      const ex = exposedPath();
-      pose = lerpPose(poseAt(ex, 1), adjust(HANDOFF), reduced() ? 1 : p.release);
-      frame = frameFor('pinned');
-      hourF = story.peak.index;
-      slr = story.hazard === 'floods' ? 1 : 0;
-      shot = `stop-${story.stops.length - 1}`;
-    } else if (p.exposed > 0) {
+    if (p.exposed > 0) {
       const ex = exposedPath();
       const { index } = stepAt(p.exposed, story.stops.length);
       pose = reduced() ? ex[2 * index + 1].pose : poseAt(ex, p.exposed);
@@ -300,16 +297,14 @@ export function createStoryController({ theme, onStoryChange } = {}) {
       stage.instant = reduced();
       stage.setFrame(Math.round(frame.x), Math.round(frame.y));
       stage.setPose(pose);
-      if (p.exposed > 0 || p.release > 0) applyRisk();
-      else applyData(hourF, slr);
-      if (p.exposed > 0 && p.release <= 0) placeAnnotation(p.exposed);
-      const canvas = $('stage');
-      const fadeIn = reduced() ? 1 : Math.min(1, (time - attachedAt) / 700);
-      canvas.style.opacity = String(fadeIn * (1 - (reduced() ? (p.release > 0.5 ? 1 : 0) : p.release)));
+      if (p.exposed > 0) {
+        applyRisk();
+        placeAnnotation(p.exposed);
+      } else applyData(hourF, slr);
+      $('stage').style.opacity = String(reduced() ? 1 : Math.min(1, (time - attachedAt) / 700));
       stage.render();
     } else if (mode === 'stills') {
       if (shot !== lastShot) showStill(shot);
-      $('still').style.opacity = String(1 - p.release);
     }
     lastShot = shot;
   }
@@ -408,53 +403,89 @@ export function createStoryController({ theme, onStoryChange } = {}) {
     img.src = src;
   }
 
-  // ---------------- scroll progress ----------------
-  // GSAP ScrollTrigger reports how far each section has scrolled. Without it
-  // (script blocked), the same numbers come from getBoundingClientRect.
+  // ---------------- position, steps and playback ----------------
 
-  let triggers = null;
-  function useScrollTrigger() {
-    const ST = window.ScrollTrigger;
-    if (!ST || !window.gsap) return false;
-    window.gsap.registerPlugin(ST);
-    const set = (key) => (self) => {
-      target[key] = self.progress;
-    };
-    triggers = [
-      ST.create({ trigger: '#top', start: 'top top', end: 'bottom top', onUpdate: set('hero') }),
-      ST.create({ trigger: '#timeline', start: 'top top', end: 'bottom bottom', onUpdate: set('timeline'), onLeave: () => (target.timeline = 1), onLeaveBack: () => (target.timeline = 0) }),
-      ST.create({ trigger: '#exposed', start: 'top top', end: 'bottom bottom', onUpdate: set('exposed'), onLeaveBack: () => (target.exposed = 0) }),
-      ST.create({ trigger: '#app', start: 'top bottom', end: 'top top', onUpdate: set('release'), onLeaveBack: () => (target.release = 0) }),
-    ];
-    return true;
+  /** Where each step settles: one per beat of the timeline, then one per neighborhood stop. */
+  function steps() {
+    if (!story) return [0];
+    const last = story.time.length - 1;
+    const split = 1 - SLR_SHARE;
+    const beats = story.beats.map((b) => {
+      if (b.slr) return 1;
+      const p = story.hazard === 'floods' ? (b.index / story.peak.index) * split : b.index / last;
+      return Math.min(1, p + 0.002);
+    });
+    const stops = story.stops.map((_, i) => 1 + (i + 0.8) / story.stops.length);
+    return [...beats, ...stops];
   }
 
-  function measure() {
-    const vh = window.innerHeight;
-    const prog = (el) => {
-      const r = el.getBoundingClientRect();
-      return clamp01(-r.top / Math.max(1, r.height - vh));
-    };
-    const hero = $('top').getBoundingClientRect();
-    target.hero = clamp01(-hero.top / Math.max(1, hero.height));
-    target.timeline = prog($('timeline'));
-    target.exposed = prog($('exposed'));
-    const app = $('app').getBoundingClientRect();
-    target.release = clamp01((vh - app.top) / vh);
-    // the timeline stays "on" only while it's the section in view
-    if (target.exposed > 0) target.timeline = 1;
+  const chapter = () => (pos > 1 ? 'exposed' : 'timeline');
+
+  function seek(v, { stop = true } = {}) {
+    if (stop) playing = false;
+    pos = Math.max(0, Math.min(2, v));
+    target.hero = 1;
+    target.timeline = Math.min(1, pos);
+    target.exposed = Math.max(0, pos - 1);
+    onPosition?.({ pos, chapter: chapter(), playing, step: currentStep(), steps: steps().length });
+  }
+
+  function currentStep() {
+    const list = steps();
+    let i = 0;
+    list.forEach((p, k) => {
+      if (pos >= p - 0.0005) i = k;
+    });
+    return i;
+  }
+
+  function go(dir) {
+    const list = steps();
+    const i = currentStep();
+    const atStep = Math.abs(list[i] - pos) < 0.001;
+    const next = dir > 0 ? (pos < list[0] - 0.0005 ? 0 : i + 1) : atStep ? i - 1 : i;
+    seek(list[Math.max(0, Math.min(list.length - 1, next))]);
+  }
+
+  // Play: the timeline sweeps hour by hour in about 15 seconds, then each stop holds
+  // for a few seconds. With reduced motion it steps instead of sweeping.
+  const TIMELINE_MS = 15000;
+  const STOP_MS = 3500;
+  function advance(time) {
+    const dt = Math.min(100, time - lastTime);
+    if (reduced()) {
+      if (time < nextStepAt) return;
+      nextStepAt = time + STOP_MS;
+      const list = steps();
+      const i = currentStep();
+      if (i >= list.length - 1 && pos >= list[list.length - 1] - 0.001) return setPlaying(false);
+      seek(list[pos < list[0] ? 0 : i + 1], { stop: false });
+      return;
+    }
+    const rate = pos < 1 ? 1 / TIMELINE_MS : 1 / (STOP_MS * Math.max(1, story.stops.length));
+    const end = steps().at(-1);
+    seek(Math.min(end, pos + dt * rate), { stop: false });
+    if (pos >= end) setPlaying(false);
+  }
+
+  function setPlaying(on) {
+    playing = on;
+    if (on && pos >= steps().at(-1) - 0.001) seek(0, { stop: false });
+    nextStepAt = 0;
+    onPosition?.({ pos, chapter: chapter(), playing, step: currentStep(), steps: steps().length });
   }
 
   function loop(time) {
     if (!running) return;
-    if (!triggers) measure();
-    // ease displayed progress toward the scroll position: smooth, never ahead of the reader
-    const k = reduced() ? 1 : 0.2;
+    if (playing) advance(time);
+    lastTime = time;
+    // ease the displayed position toward the target: quick, but never a jump cut
+    const k = reduced() ? 1 : 0.16;
     for (const key of Object.keys(target)) {
       const d = target[key] - shown[key];
       shown[key] = Math.abs(d) < 0.0005 ? target[key] : shown[key] + d * k;
     }
-    if (story && shown.release < 1) update(time);
+    if (story) update(time);
     requestAnimationFrame(loop);
   }
 
@@ -503,7 +534,7 @@ export function createStoryController({ theme, onStoryChange } = {}) {
     renderText();
     if (stage) await prepareStage();
     onStoryChange?.(story);
-    if (window.ScrollTrigger) window.ScrollTrigger.refresh();
+    if (running) seek(steps()[0]);
     return story;
   }
 
@@ -513,15 +544,30 @@ export function createStoryController({ theme, onStoryChange } = {}) {
     lastShot = null;
   }
 
-  function start() {
-    if (running) return;
-    running = true;
-    useScrollTrigger();
-    requestAnimationFrame(loop);
+  /** Show the story from the top: the camera flies in from the wide hero shot. */
+  function open({ autoplay = !reduced() } = {}) {
+    for (const key of Object.keys(shown)) shown[key] = 0;
+    lastShot = null;
+    lastBeat = -2;
+    lastStep = -2;
+    if (story) drawStrip();
+    seek(steps()[0]);
+    if (autoplay) setPlaying(true);
+    if (!running) {
+      running = true;
+      lastTime = performance.now();
+      requestAnimationFrame(loop);
+    }
+  }
+
+  function close() {
+    running = false;
+    playing = false;
+    hideAnnotation();
   }
 
   window.addEventListener('resize', () => {
-    if (story) drawStrip();
+    if (story && running) drawStrip();
   });
 
   return {
@@ -529,7 +575,18 @@ export function createStoryController({ theme, onStoryChange } = {}) {
     setTheme,
     attachStage,
     useStills,
-    start,
+    open,
+    close,
+    seek,
+    next: () => go(1),
+    prev: () => go(-1),
+    togglePlay: () => setPlaying(!playing),
+    get position() {
+      return pos;
+    },
+    get stepPositions() {
+      return steps();
+    },
     get story() {
       return story;
     },

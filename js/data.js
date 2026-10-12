@@ -3,7 +3,7 @@
 //   NOAA CO-OPS      – observed + predicted water levels (tides & storm surge)
 //   Open-Meteo       – hourly rain, temperature, humidity, wind and air quality forecasts
 //   NWS (weather.gov)– active alerts for NYC
-//   NYC Open Data    – 311 street flooding & sewer backup reports
+//   NYC Open Data    – 311 street flooding & sewer backup reports, hurricane evacuation zones
 //   NYC GeoSearch    – address lookup
 //   FEMA NFHL        – flood zone at a point
 //
@@ -371,4 +371,42 @@ export async function fetchFemaZone(lat, lon) {
 
 function round2(n) {
   return Math.round(n * 100) / 100;
+}
+
+// ---------------- Hurricane evacuation zone ----------------
+//
+// NYC Emergency Management's hurricane evacuation zones, from NYC Open Data
+// (no key). The portal has published the layer under more than one dataset id
+// and field name over the years, so every combination is asked at once and the
+// first in this order that answers wins. Selecting only the zone field keeps the
+// citywide polygons out of the response.
+
+const EVAC_DATASETS = ['epne-qv9x', 'uihr-hn7s'];
+const EVAC_FIELDS = ['hurricane_', 'hurricane_evacuation_zone', 'zone'];
+export const EVAC_ZONE_FINDER = 'https://maps.nyc.gov/hurricane/';
+
+/** { zone: '1'…'6' } inside a zone, { zone: null } outside every zone. Throws on anything unexpected. */
+export function parseEvacZone(rows, field) {
+  if (!Array.isArray(rows)) throw new Error('unexpected response');
+  if (!rows.length) return { zone: null };
+  const z = String(rows[0][field] ?? '').trim().toUpperCase();
+  if (/^[1-6]$/.test(z)) return { zone: z };
+  if (z === 'X' || z === '0') return { zone: null };
+  throw new Error(`unexpected zone value "${z}"`);
+}
+
+export async function fetchEvacZone(lat, lon) {
+  const point = `POINT (${lon.toFixed(6)} ${lat.toFixed(6)})`;
+  const tries = EVAC_DATASETS.flatMap((id) =>
+    EVAC_FIELDS.map((field) => {
+      const q = new URLSearchParams({ $select: field, $where: `intersects(the_geom, '${point}')`, $limit: '1' });
+      return fetchJson(`https://data.cityofnewyork.us/resource/${id}.json?${q}`, { timeoutMs: 10000, headers: socrataHeaders() }).then((rows) =>
+        parseEvacZone(rows, field),
+      );
+    }),
+  );
+  const settled = await Promise.allSettled(tries);
+  const hit = settled.find((r) => r.status === 'fulfilled');
+  if (!hit) throw settled[0].reason;
+  return hit.value;
 }
