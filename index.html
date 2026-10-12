@@ -4,13 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>DrainWatch: How climate risk hits New York, block by block</title>
-    <meta name="description" content="Check flood, heat, air and wind risk for any New York City address, live. Compare neighborhoods, find your evacuation zone and higher ground, and replay Hurricane Sandy on 2080s seas." />
+    <meta name="description" content="Replay Hurricane Sandy, the 2019 heat wave and the 2023 wildfire smoke in 3D, then check flood, heat, air and wind risk for any New York City address, live." />
     <meta name="theme-color" content="#F6F3EC" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0F0F0E" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23141414'/><text x='16' y='24' font-family='Georgia,serif' font-size='22' text-anchor='middle' fill='%23F6F3EC'>D</text></svg>" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" />
     <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
     <link rel="stylesheet" href="css/style.css" />
@@ -25,12 +24,11 @@
       } catch (e) {}
     </script>
   </head>
-  <!-- data-view: "dashboard" (default, no scroll effects) or "story" (the 3D scroll replay, opt-in) -->
-  <body data-hazard="heat" data-view="dashboard">
-    <a class="skip" href="#address-input-2">Skip to the address check</a>
+  <body data-hazard="heat">
+    <a class="skip" href="#app">Skip to the address check and map</a>
 
     <header class="masthead">
-      <a class="wordmark" href="#">DrainWatch</a>
+      <a class="wordmark" href="#top">DrainWatch</a>
       <nav class="sections" aria-label="Hazard">
         <a href="#floods" data-hazard="floods">Floods</a>
         <a href="#heat" data-hazard="heat" aria-current="page">Heat</a>
@@ -38,21 +36,17 @@
         <a href="#wind" data-hazard="wind">Wind</a>
       </nav>
       <p class="status" id="status" aria-live="polite">Connecting to live data…</p>
-      <div class="actions">
-        <button type="button" class="act" id="open-compare" aria-haspopup="dialog">Compare</button>
-        <button type="button" class="act" id="view-toggle">3D story</button>
-        <button type="button" class="theme-toggle" id="theme-toggle">Dark</button>
-      </div>
+      <button type="button" class="theme-toggle" id="theme-toggle">Dark</button>
     </header>
 
-    <!-- The 3D story's canvas. Purely visual: every fact in it is also in the text. Only shown in the story view. -->
+    <!-- One canvas for the whole story. Purely visual: every fact in it is also in the text. -->
     <div class="sky" id="sky" aria-hidden="true"></div>
     <canvas id="stage" aria-hidden="true"></canvas>
     <img class="still" id="still" alt="" aria-hidden="true" hidden />
     <svg class="leader" id="leader" aria-hidden="true"><line x1="0" y1="0" x2="0" y2="0" /><circle r="4" /></svg>
 
     <main>
-      <!-- ================= The story (opt-in): hero + two pinned chapters ================= -->
+      <!-- 1. Hero -->
       <section class="hero" id="top" aria-labelledby="hero-head">
         <div class="hero-text">
           <p class="label" id="hero-kicker">July 20, 2019</p>
@@ -72,9 +66,10 @@
           <p class="also" id="also-line" hidden></p>
         </form>
 
-        <p class="scroll-cue" id="scroll-cue"><span>Scroll for the story</span> <button type="button" class="linkish" data-view="dashboard">or go back to the dashboard</button></p>
+        <p class="scroll-cue" id="scroll-cue"><span>Scroll for the story</span> <a href="#app">or skip to the map</a></p>
       </section>
 
+      <!-- 2. Pinned timeline: scroll scrubs hour by hour -->
       <section class="chapter chapter-timeline" id="timeline" aria-labelledby="timeline-title">
         <div class="pin">
           <div class="side">
@@ -92,6 +87,7 @@
         </div>
       </section>
 
+      <!-- 3. Pinned "who's exposed": the camera visits the worst-hit neighborhoods -->
       <section class="chapter chapter-exposed" id="exposed" aria-labelledby="exposed-title">
         <div class="pin">
           <div class="side">
@@ -105,188 +101,116 @@
         </div>
       </section>
 
-      <!-- ================= The dashboard: sticky map + scannable cards ================= -->
-      <section class="app" id="app" aria-label="Climate risk dashboard">
-        <div class="dash">
-          <!-- overview -->
-          <section class="card overview" aria-labelledby="app-title">
+      <!-- 4. Release: the everyday app. No scroll effects from here on. -->
+      <section class="app" id="app" aria-labelledby="app-title">
+        <header class="app-head">
+          <div class="app-figure">
             <p class="label" id="app-kicker">Right now · Heat</p>
-            <div class="overview-figure">
-              <p class="mega mega-app" id="app-mega"><span class="mega-num">—</span><span class="mega-unit"></span></p>
-              <p class="mega-label" id="app-mega-label"></p>
-            </div>
-            <h1 class="h2" id="app-title">Checking conditions across the city…</h1>
+            <p class="mega mega-app" id="app-mega"><span class="mega-num">—</span><span class="mega-unit"></span></p>
+            <p class="mega-label" id="app-mega-label"></p>
+          </div>
+          <div class="app-summary">
+            <h2 class="h2" id="app-title">Checking conditions across the city…</h2>
             <p class="dek" id="app-dek"></p>
             <p class="note context" id="app-context"></p>
-            <p class="label chips-label" id="chips-label">Every hazard, right now</p>
-            <nav class="chips" id="hazard-chips" aria-labelledby="chips-label"></nav>
-          </section>
-
-          <!-- climate time machine -->
-          <section class="card tm" id="time-machine" aria-labelledby="tm-title">
-            <div class="card-head">
-              <p class="label">Climate time machine</p>
-              <h2 class="h3" id="tm-title">Replay a real disaster, then raise the sea</h2>
-            </div>
             <div class="modes">
               <p class="label" id="mode-label">Showing</p>
               <div class="mode-list" id="mode-list" role="radiogroup" aria-labelledby="mode-label"></div>
             </div>
-            <div class="tm-presets" id="tm-presets">
-              <a class="preset" href="#floods/sandy">Sandy, as it happened</a>
-              <a class="preset hot" href="#floods/sandy/2080s">Sandy on 2080s seas (+29 in)</a>
-              <a class="preset" href="#floods/live/2100">Today's tides in 2100</a>
-            </div>
             <div class="slr" id="slr" hidden>
-              <div class="tm-row">
-                <label class="label" for="slr-range" id="slr-label">Sea level</label>
-                <output class="tm-out" id="slr-out" for="slr-range">Today</output>
-              </div>
-              <input type="range" id="slr-range" class="range" min="0" max="3" step="1" value="0" aria-describedby="slr-note" />
-              <div class="ticks" id="slr-ticks" aria-hidden="true"></div>
+              <p class="label" id="slr-label">Sea level</p>
+              <div class="mode-list" id="slr-list" role="radiogroup" aria-labelledby="slr-label"></div>
               <p class="note" id="slr-note"></p>
             </div>
-            <div class="tm-hour" id="tm-hour" hidden>
-              <div class="tm-row">
-                <label class="label" for="hour-range">Storm hour</label>
-                <button type="button" class="tm-play" id="tm-play" aria-pressed="false">▶ Play</button>
-              </div>
-              <input type="range" id="hour-range" class="range" min="0" max="42" step="1" value="0" aria-describedby="tm-readout" />
-              <p class="tm-readout" id="tm-readout"></p>
-            </div>
-            <div class="tm-delta" id="tm-delta" aria-live="polite"></div>
-          </section>
-
-          <!-- the map: sticky beside the cards on wide screens -->
-          <div class="dash-map">
-            <div class="map-bar">
-              <div class="legend" id="legend"></div>
-              <fieldset class="layers" id="layers">
-                <legend class="label">Map layers</legend>
-              </fieldset>
-            </div>
-            <div class="map" id="map" role="region" aria-label="Map of neighborhood risk. The Neighborhoods tab lists the same information."></div>
-            <div class="flood-key" id="flood-key" hidden>
-              <span><i class="k-base"></i>Under water at this level</span>
-              <span><i class="k-plus"></i>Added by sea level rise</span>
-              <span><i class="k-worse"></i>Neighborhood rises a risk level</span>
-            </div>
           </div>
+        </header>
 
-          <!-- address check + safety plan -->
-          <section class="card address-card" aria-labelledby="address-label-2">
-            <form class="address address-inline" id="address-form-2" role="search" autocomplete="off">
-              <label class="label" id="address-label-2" for="address-input-2">Check an address</label>
-              <div class="address-row">
-                <input id="address-input-2" type="search" placeholder="160 Van Brunt St, Brooklyn" />
-                <button type="submit">Check</button>
-              </div>
-              <div class="address-results" id="address-results-2"></div>
-              <p class="note address-help">Every hazard for that exact spot, plus your evacuation zone, the nearest evacuation center and the nearest higher ground. Or click anywhere on the map.</p>
-            </form>
-            <div id="report" class="report-wrap" aria-live="polite"></div>
+        <form class="address address-inline" id="address-form-2" role="search" autocomplete="off">
+          <label class="label" for="address-input-2">Check an address</label>
+          <div class="address-row">
+            <input id="address-input-2" type="search" placeholder="Any address in the five boroughs" />
+            <button type="submit">Check</button>
+          </div>
+          <div class="address-results" id="address-results-2"></div>
+        </form>
+        <div id="report" class="report-wrap" aria-live="polite"></div>
+
+        <div class="map-bar">
+          <div class="legend" id="legend"></div>
+          <fieldset class="layers" id="layers">
+            <legend class="label">Map layers</legend>
+          </fieldset>
+        </div>
+        <div class="map" id="map" role="region" aria-label="Map of neighborhood risk. The table below lists the same information."></div>
+
+        <div class="app-grid">
+          <section class="ranking" aria-labelledby="ranking-title">
+            <h3 class="h3" id="ranking-title">Neighborhoods</h3>
+            <p class="note" id="ranking-note"></p>
+            <table class="table" id="ranking">
+              <thead>
+                <tr><th scope="col" class="num">#</th><th scope="col">Neighborhood</th><th scope="col">Risk</th><th scope="col" class="num">Score</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+            <button type="button" class="more" id="ranking-more">Show all neighborhoods</button>
           </section>
+          <aside class="details" id="details" aria-label="Forecast and alerts"></aside>
+        </div>
+      </section>
 
-          <!-- details, organized as tabs -->
-          <section class="card tabs-card" aria-label="Details">
-            <div class="tabs" id="dash-tabs" role="tablist" aria-label="Details">
-              <button type="button" role="tab" id="tab-ranking" aria-controls="panel-ranking" aria-selected="true">Neighborhoods</button>
-              <button type="button" role="tab" id="tab-details" aria-controls="panel-details" aria-selected="false" tabindex="-1">Forecast &amp; alerts</button>
-              <button type="button" role="tab" id="tab-ready" aria-controls="panel-ready" aria-selected="false" tabindex="-1">Be ready <small id="ready-count"></small></button>
-              <button type="button" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" tabindex="-1">How it works</button>
-            </div>
+      <section class="essay" id="ready" aria-labelledby="ready-title">
+        <p class="label">Be ready</p>
+        <h2 class="h2" id="ready-title">What to do before it happens</h2>
+        <p class="dek">Small steps that save lives in New York's most common disasters. Check off what you've done; it stays in this browser only.</p>
+        <p class="progress" id="prep-progress" aria-live="polite"></p>
+        <div class="prep-nav" id="prep-tabs" role="tablist" aria-label="Checklist by hazard"></div>
+        <ul class="checklist" id="checklist" role="tabpanel"></ul>
+      </section>
 
-            <div class="tab-panel" role="tabpanel" id="panel-ranking" aria-labelledby="tab-ranking" tabindex="0">
-              <div class="panel-head">
-                <p class="note" id="ranking-note"></p>
-                <button type="button" class="more" id="compare-inline" aria-haspopup="dialog">Compare two →</button>
-              </div>
-              <table class="table" id="ranking">
-                <thead>
-                  <tr><th scope="col" class="num">#</th><th scope="col">Neighborhood</th><th scope="col">Risk</th><th scope="col" class="num">Score</th><th scope="col" class="num delta-col">vs today</th></tr>
-                </thead>
-                <tbody></tbody>
+      <section class="essay" id="method" aria-labelledby="method-title">
+        <p class="label">How it works</p>
+        <h2 class="h2" id="method-title">Public data in, a plain-language risk level out</h2>
+        <div class="method-body">
+          <p>
+            Every 15 minutes DrainWatch reads tide gauges, forecasts, weather alerts and 311 reports from free government and open-data sources. No API keys, no tracking.
+            For each hazard, a short, tested set of rules scores <em>how bad conditions will get</em> and scales it by <em>how exposed each neighborhood is</em>,
+            then names the result: Low, Elevated, High or Severe.
+          </p>
+          <p class="formula">risk = hazard (0–4) × exposure + alerts</p>
+          <div id="methodology" class="method-list"></div>
+          <h3 class="h3">Sea level rise, projected for New York</h3>
+          <figure class="slr-figure">
+            <div id="slr-chart"></div>
+            <figcaption class="note">Bars: likely range (25th–75th percentile). Ring: high-end estimate (90th percentile). Inches above the 2000–2004 average. Source: NYC Panel on Climate Change, 2019.</figcaption>
+            <div class="sr-only">
+              <table>
+                <caption>Projected sea level rise, NYC, inches above 2000–2004</caption>
+                <thead><tr><th scope="col">Period</th><th scope="col">Likely range</th><th scope="col">High-end</th></tr></thead>
+                <tbody id="slr-body"></tbody>
               </table>
-              <button type="button" class="more" id="ranking-more">Show all neighborhoods</button>
             </div>
-
-            <div class="tab-panel" role="tabpanel" id="panel-details" aria-labelledby="tab-details" tabindex="0" hidden>
-              <div class="details" id="details"></div>
-            </div>
-
-            <div class="tab-panel" role="tabpanel" id="panel-ready" aria-labelledby="tab-ready" tabindex="0" hidden>
-              <p class="note">Small steps that save lives in New York's most common disasters. Your checks stay in this browser only.</p>
-              <p class="progress" id="prep-progress" aria-live="polite"></p>
-              <div class="prep-nav" id="prep-tabs" role="tablist" aria-label="Checklist by hazard"></div>
-              <ul class="checklist" id="checklist" role="tabpanel"></ul>
-            </div>
-
-            <div class="tab-panel method-body" role="tabpanel" id="panel-method" aria-labelledby="tab-method" tabindex="0" hidden>
-              <p>
-                Every 15 minutes DrainWatch reads tide gauges, forecasts, weather alerts and 311 reports from free government and open-data sources. No API keys, no tracking.
-                For each hazard, a short, tested set of rules scores <em>how bad conditions will get</em> and scales it by <em>how exposed each neighborhood is</em>,
-                then names the result: Low, Elevated, High or Severe.
-              </p>
-              <p class="formula">risk = hazard (0–4) × exposure + alerts</p>
-              <div id="methodology" class="method-list"></div>
-              <h3 class="h3">Sea level rise, projected for New York</h3>
-              <figure class="slr-figure">
-                <div id="slr-chart"></div>
-                <figcaption class="note">Bars: likely range (25th–75th percentile). Ring: high-end estimate (90th percentile). Inches above the 2000–2004 average. Source: NYC Panel on Climate Change, 2019.</figcaption>
-                <div class="sr-only">
-                  <table>
-                    <caption>Projected sea level rise, NYC, inches above 2000–2004</caption>
-                    <thead><tr><th scope="col">Period</th><th scope="col">Likely range</th><th scope="col">High-end</th></tr></thead>
-                    <tbody id="slr-body"></tbody>
-                  </table>
-                </div>
-              </figure>
-              <h3 class="h3">The flood map in the time machine</h3>
-              <p class="method-small">
-                Land is colored as flooded when it sits below the water level <em>and</em> connects to open water, on a ~110 m grid from USGS 3DEP elevation.
-                The water level is the Battery's, so it is a citywide approximation. It ignores seawalls, drainage and how long the surge lasts.
-                Checked against Sandy: the model floods about 54 square miles; the city's own estimate is 51.
-              </p>
-              <h3 class="h3">Sources</h3>
-              <ul class="sources" id="sources"></ul>
-              <details class="story-data">
-                <summary>The replay's numbers, hour by hour</summary>
-                <div id="story-table"></div>
-              </details>
-              <p class="disclaimer">
-                <strong>DrainWatch is an educational tool, not an official warning system.</strong> In an emergency follow
-                <a href="https://www.nyc.gov/notifynyc" target="_blank" rel="noopener">Notify NYC</a> and the
-                <a href="https://www.weather.gov/okx/" target="_blank" rel="noopener">National Weather Service</a>, and call 911 if you are in danger.
-              </p>
-            </div>
-          </section>
+          </figure>
+          <h3 class="h3">Sources</h3>
+          <ul class="sources" id="sources"></ul>
+          <details class="story-data">
+            <summary>The replay's numbers, hour by hour</summary>
+            <div id="story-table"></div>
+          </details>
+          <p class="disclaimer">
+            <strong>DrainWatch is an educational tool, not an official warning system.</strong> In an emergency follow
+            <a href="https://www.nyc.gov/notifynyc" target="_blank" rel="noopener">Notify NYC</a> and the
+            <a href="https://www.weather.gov/okx/" target="_blank" rel="noopener">National Weather Service</a>, and call 911 if you are in danger.
+          </p>
         </div>
       </section>
     </main>
 
     <footer class="footer">
       <p class="wordmark">DrainWatch</p>
-      <p>Built for New Yorkers, for the Congressional App Challenge. Data from NOAA, the National Weather Service, Open-Meteo, NYC Open Data, NYC Emergency Management, FEMA, USGS and the NYC Health Department.
-        Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>. <a href="https://github.com/sonamt17/drainwatch" target="_blank" rel="noopener">Source code</a>.</p>
+      <p>Built for New Yorkers, for the Congressional App Challenge. Data from NOAA, the National Weather Service, Open-Meteo, NYC Open Data, FEMA, USGS and the NYC Health Department.
+        Map © OpenStreetMap contributors © CARTO. <a href="https://github.com/sonamt17/drainwatch" target="_blank" rel="noopener">Source code</a>.</p>
     </footer>
-
-    <!-- Neighborhood vs. neighborhood -->
-    <dialog class="compare" id="compare" aria-labelledby="compare-title">
-      <div class="compare-head">
-        <div>
-          <p class="label">Neighborhood vs. neighborhood</p>
-          <h2 class="h2" id="compare-title">Same storm, different stakes</h2>
-        </div>
-        <button type="button" class="compare-close" id="compare-close">Close <span aria-hidden="true">✕</span></button>
-      </div>
-      <div class="compare-pick">
-        <label><span class="label">First</span><select id="cmp-a"></select></label>
-        <button type="button" class="swap" id="cmp-swap" aria-label="Swap the two neighborhoods">⇄</button>
-        <label><span class="label">Second</span><select id="cmp-b"></select></label>
-      </div>
-      <p class="compare-presets" id="cmp-presets"></p>
-      <div id="cmp-body" aria-live="polite"></div>
-    </dialog>
 
     <div id="chart-tip" class="chart-tip" role="presentation" hidden></div>
 
