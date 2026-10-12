@@ -178,25 +178,18 @@ export function detailsHtml(ctx) {
 
 // ---------------- table, legend ----------------
 
-/**
- * delta (optional): Map of area id → { scoreDelta, levelUp } against today's sea
- * level, shown in the time machine's change column.
- */
-export function rankingRowsHtml(results, available, { limit = Infinity, delta = null } = {}) {
+export function rankingRowsHtml(results, available, { limit = Infinity } = {}) {
   const sorted = [...results].sort((a, b) => b.score - a.score || a.area.name.localeCompare(b.area.name));
   return sorted
     .slice(0, limit)
-    .map((r, i) => {
-      const d = delta && delta.get(r.area.id);
-      const change = !d || !available ? '' : d.scoreDelta > 0.004 ? `<span class="${d.levelUp ? 'up' : ''}">+${d.scoreDelta.toFixed(1)}${d.levelUp ? ' ▲' : ''}</span>` : '<span class="same">0</span>';
-      return `<tr${d && d.levelUp ? ' class="worse"' : ''}>
+    .map(
+      (r, i) => `<tr>
         <td class="num">${i + 1}</td>
         <td class="name"><button type="button" class="row-link" data-id="${r.area.id}">${esc(r.area.name)}</button> <small>${esc(r.area.borough)}</small></td>
         <td>${available ? level(r.level) : level('none')}</td>
         <td class="num">${available ? r.score.toFixed(1) : '—'}</td>
-        <td class="num delta-col">${change}</td>
-      </tr>`;
-    })
+      </tr>`,
+    )
     .join('');
 }
 
@@ -244,10 +237,10 @@ export function reportHtml(rep, currentHazard) {
   const rows = HAZARD_ORDER.map((h) => {
     const r = rep.results[h];
     const ok = rep.available[h];
-    const why = !r ? 'Checking…' : ok ? r.reasons[0] : rep.pending ? 'Loading live data…' : 'Live data unavailable';
+    const why = !r ? 'Checking…' : ok ? r.reasons[0] : 'Live data unavailable';
     return `<tr data-hazard="${h}"${h === currentHazard ? ' class="here"' : ''}>
       <td class="name">${esc(HAZARDS[h].label)}</td>
-      <td>${r && !rep.pending ? level(ok ? r.level : 'none') : level('none', '…')}</td>
+      <td>${r ? level(ok ? r.level : 'none') : level('none', '…')}</td>
       <td class="why">${esc(why)}</td>
     </tr>`;
   }).join('');
@@ -275,7 +268,6 @@ export function reportHtml(rep, currentHazard) {
         <thead><tr><th scope="col">Hazard</th><th scope="col">Risk</th><th scope="col">Why</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      ${refugeHtml(rep.refuge, currentHazard)}
       <dl class="facts">
         <dt>FEMA flood zone</dt><dd>${zone}</dd>
         <dt>311 history</dt><dd>${esc(history)}</dd>
@@ -284,80 +276,5 @@ export function reportHtml(rep, currentHazard) {
       <p class="note" style="margin-top:12px">Flood ratings use this exact spot. Heat, air and wind use the forecast here and the nearest rated neighborhood's vulnerability. FEMA's effective maps date from 2007; newer maps and sea level rise extend the floodplain.</p>
     </div>
   </article>`;
-}
-
-// ---------------- the refuge quick-finder ----------------
-
-const ZONE_TEXT = {
-  1: 'the most exposed to storm surge, and the first ordered to leave',
-  2: 'ordered to leave in strong storms, right after zone 1',
-  3: 'ordered to leave in strong hurricanes',
-  4: 'ordered to leave in major hurricanes',
-  5: 'ordered to leave only in the most severe hurricanes',
-  6: 'ordered to leave only in the most severe hurricanes',
-};
-
-const HAZARD_LINKS = {
-  floods: { href: 'https://maps.nyc.gov/hurricane/', label: 'Hurricane evacuation finder' },
-  heat: { href: 'https://finder.nyc.gov/coolingcenters/', label: 'Cooling center finder' },
-  air: { href: 'https://www.airnow.gov/?city=New%20York&state=NY', label: 'AirNow for New York' },
-  wind: { href: 'https://www.nyc.gov/site/em/ready/guides-resources.page', label: 'NYC storm guides' },
-};
-
-const ft = (m) => Math.round(m / 0.3048);
-
-/**
- * r: { zone: undefined (checking) | null (no zone) | '1'–'6' | 'error',
- *      center: undefined | null | 'error' | { name, address, accessible, km, compass },
- *      terrain: false (still loading) | { hereM, sandyM, futureM, minM, higher: null | { km, routeKm, compass, elevM, minutes } } }
- */
-export function refugeHtml(r, hazard) {
-  if (!r) return '';
-  let zone;
-  if (r.zone === undefined) zone = 'Checking NYC Emergency Management…';
-  else if (r.zone === 'error') zone = `The zone lookup didn't answer. <a href="https://maps.nyc.gov/hurricane/" target="_blank" rel="noopener">Look it up on the city's finder ↗</a>`;
-  else if (!r.zone) zone = '<b>Not in an evacuation zone.</b> In a coastal storm you most likely stay home, unless officials say otherwise.';
-  else zone = `<b>Zone ${esc(r.zone)}</b>: ${ZONE_TEXT[r.zone]}.`;
-
-  let center;
-  if (r.center === undefined) center = 'Finding the nearest one…';
-  else if (r.center === 'error' || !r.center) center = `Couldn't load the list. <a href="https://maps.nyc.gov/hurricane/" target="_blank" rel="noopener">Find one on the city's map ↗</a>`;
-  else {
-    const c = r.center;
-    center = `<b>${esc(c.name)}</b>, ${esc(c.address)}<br>${c.km.toFixed(1)} km ${esc(c.compass)}${c.accessible ? ' · wheelchair accessible' : ''}. <span class="note">Opens only when an evacuation is ordered.</span>`;
-  }
-
-  let high;
-  let here = '';
-  const t = r.terrain;
-  if (!t) high = 'Reading the elevation map…';
-  else if (t.hereM == null) high = 'This spot is outside the elevation map.';
-  else {
-    here = `<li><span class="refuge-k">This spot</span><span class="refuge-v">About <b>${ft(t.hereM)} ft</b> above sea level. Sandy's water peaked near ${ft(t.sandyM)} ft; with 2080s seas the same storm reaches ~${ft(t.futureM)} ft.</span></li>`;
-    if (t.hereM >= t.minM) high = `<b>You're already on higher ground</b>, ${ft(t.hereM - t.futureM)} ft above where a Sandy-size storm would reach in the 2080s. Floodwater is unlikely here, but heat, wind and power cuts are not.`;
-    else if (!t.higher) high = '<b>No high ground within 5 km on foot.</b> Leave early when an evacuation is ordered; this is what evacuation centers are for.';
-    else {
-      const h = t.higher;
-      high = `<b>${ft(h.elevM)} ft ground ${h.km < 0.1 ? 'right nearby' : `about ${h.km.toFixed(1)} km ${esc(h.compass)}`}</b>${h.km < 0.1 ? '' : `, roughly ${h.minutes} min on foot`} (▲ on the map). That's ${ft(h.elevM - t.futureM)} ft above a Sandy-size storm with 2080s seas.`;
-    }
-  }
-
-  const link = HAZARD_LINKS[hazard];
-  return `<section class="refuge" aria-label="Safety plan for this spot">
-    <h4 class="h3">Safety plan for this spot</h4>
-    <ul class="refuge-list">
-      <li><span class="refuge-k">Evacuation zone</span><span class="refuge-v">${zone}</span></li>
-      <li><span class="refuge-k">Evacuation center</span><span class="refuge-v">${center}</span></li>
-      <li><span class="refuge-k">Higher ground</span><span class="refuge-v">${high}</span></li>
-      ${here}
-    </ul>
-    <p class="refuge-links">
-      <a href="${link.href}" target="_blank" rel="noopener">${esc(link.label)} ↗</a>
-      <a href="https://www.nyc.gov/site/em/ready/know-your-zone.page" target="_blank" rel="noopener">Know Your Zone ↗</a>
-      <a href="https://www.nyc.gov/notifynyc" target="_blank" rel="noopener">Notify NYC alerts ↗</a>
-      <a href="https://portal.311.nyc.gov/" target="_blank" rel="noopener">NYC 311 ↗</a>
-    </p>
-    <p class="note">Higher ground comes from a ~110 m elevation grid and a straight-line distance; it is not an official route. Always follow evacuation orders from NYC Emergency Management.</p>
-  </section>`;
 }
 

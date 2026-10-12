@@ -355,19 +355,6 @@ export function scenarioHourly(id, fromKey, hours) {
   return { time, areas, water };
 }
 
-/**
- * Hour-by-hour water level at one tide gauge (ft above MHHW) around a replay's
- * start, for the time machine's storm-hour scrubber. `peak` indexes the highest hour.
- */
-export function replayWaterSeries(id, station = 'battery', before = 12, after = 30) {
-  const s = scenarioById(id);
-  const from = fmtKey(parseKey(s.now) - before * HOUR);
-  const { time, water } = scenarioHourly(id, from, before + after + 1);
-  const level = water[station];
-  const peak = level.reduce((best, v, k) => (v > level[best] ? k : best), 0);
-  return { time, level, peak };
-}
-
 /** Inputs for a replay, shaped exactly like the live inputs app.js assembles. */
 export function buildScenario(id) {
   const s = scenarioById(id);
