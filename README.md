@@ -2,9 +2,11 @@
 
 **How climate risk hits New York City, block by block, and what it looks like at your address right now.**
 
-DrainWatch tells the story of four real New York disasters in a scroll-driven 3D city: the July 2019 heat
-wave, Hurricane Sandy, the 2023 wildfire smoke and Tropical Storm Isaias. Then it hands you a fast, live app:
-type any address and get its flood, heat, air quality and wind risk for the next 48 hours, from free public data.
+DrainWatch is a one-screen dashboard: a live risk map of the city beside a column of cards. Type any address and get
+its flood, heat, air quality and wind risk for the next 48 hours, its hurricane evacuation zone and the nearest higher
+ground. Compare any two neighborhoods side by side, replay Hurricane Sandy on top of 2080s sea levels, or open the 3D
+story of four real New York disasters: the July 2019 heat wave, Hurricane Sandy, the 2023 wildfire smoke and Tropical
+Storm Isaias. All from free public data, with no API keys.
 
 ![The heat wave story: 106°F, with the 3D city on the right](docs/screenshots/heat-hero.jpg)
 
@@ -18,17 +20,26 @@ in plain English, for the block you live on.
 
 ## What's on the page
 
-1. **The headline.** One big number from a real event (106°F feels-like during the 2019 heat wave), and the address
-   search right under it. If any hazard is High or Severe *today*, the page leads with live conditions instead.
-2. **The timeline** (pinned, scroll to scrub). Scrolling moves hour by hour through the event. Neighborhoods rise and
-   recolor with the heat index, AQI or wind gusts; the sun moves to its real position for each hour, so the sky goes
-   dark while the city stays red. In the flood story the harbor rises over USGS elevation data to the water level
-   NOAA measured, then rises again by the sea level projected for the 2080s.
-3. **Who's exposed** (pinned, three steps). The camera visits the hardest-hit neighborhoods. Each stop is anchored to
-   its place in 3D, with its risk level and the reasons, such as heat vulnerability or asthma burden.
-4. **The app.** No scroll effects from here on: a full-width map of the city's neighborhoods, an address report card for
-   all four hazards, NWS alerts, 48-hour forecast charts, a ranked table, sea level rise scenarios, and a
-   preparedness checklist.
+The map stays in view (sticky) on the left; everything else is a card on the right, so nothing is more than a short
+scroll or one tab away. On phones the map sits on top and the cards follow.
+
+1. **Right now.** The one number that matters for the chosen hazard (or replay), the risk level in plain words, and
+   anything else that is High or Severe today. A teaser opens the 3D story.
+2. **Check an address.** A report card for all four hazards, plus a **safety quick-finder**: the official hurricane
+   evacuation zone, how high the ground is compared with Sandy's storm tide, the nearest higher ground (with a route
+   drawn on the map and a walking link), and the city resources that fit the hazard.
+3. **Climate Time Machine.** Pick live data or a replay, then drag sea level rise from today to the NPCC high-end
+   estimate for 2100. The map redraws as you drag: land under water at the storm's peak in slate, land that only the
+   extra rise floods in orange, and neighborhoods hit harder outlined in orange. A card lists what changed. One button
+   loads **Sandy + 2080s seas** (+29 in).
+4. **Tabs:** the ranked **Neighborhoods** table, **Forecast & alerts** (NWS alerts and 48-hour charts), and the
+   **Be ready** checklist (also one click from the masthead).
+5. **Compare** (masthead): any two of the 39 rated neighborhoods side by side: risk for every hazard, heat
+   vulnerability, asthma burden, exposure, typical elevation and how much of each sits below Sandy's storm tide.
+6. **3D story** (masthead or the teaser): a full-screen player, not scroll-jacking. Play it, drag the scrubber, or step
+   with the arrow keys. The timeline moves hour by hour through the event (in the flood story the harbor rises over
+   USGS elevation to the level NOAA measured, then by the 2080s rise); "Who's exposed" visits the hardest-hit
+   neighborhoods.
 
 | Hazard | Story | 3D shows |
 | --- | --- | --- |
@@ -55,8 +66,8 @@ cd DrainWatch
 python3 -m http.server 8000
 ```
 
-Open <http://localhost:8000>. Useful links: `#floods`, `#air/smoke-2023`, `#floods/live/2080s`. Add `?stills` to see the
-no-WebGL fallback.
+Open <http://localhost:8000>. Useful links: `#floods`, `#air/smoke-2023`, `#floods/sandy/2080s`, `#floods/live/40in`.
+Add `?stills` to see the story's no-WebGL fallback.
 
 > Why a server? The JavaScript uses ES modules, which browsers block for files opened straight from disk.
 
@@ -66,24 +77,31 @@ no-WebGL fallback.
 node --test
 ```
 
-57 tests cover the four risk models (against the NWS heat index chart, the EPA AQI breakpoints, and NWS wind and
-flood criteria), every replay, sea level rise, the story's camera paths, the sun's position, the data layer (with a
-fake `fetch`), and that the 3D colors match the CSS. GitHub Actions runs them on every push.
+65 tests cover the four risk models (against the NWS heat index chart, the EPA AQI breakpoints, and NWS wind and
+flood criteria), every replay, sea level rise, the elevation helpers (higher ground, flooded land), the story's camera
+paths, the sun's position, the data layer (with a fake `fetch`), and that the 3D colors match the CSS. GitHub Actions
+runs them on every push.
 
 ## How it's built
 
-- **No build step.** ES modules and an import map. Three.js (a tree-shaken 587 KB bundle) and GSAP ScrollTrigger are
-  vendored in `vendor/`; Leaflet draws the app's map.
+- **No build step.** ES modules and an import map. Three.js (a tree-shaken 587 KB bundle) and Leaflet are vendored in
+  `vendor/`.
+- **A keyless basemap.** Standard OpenStreetMap tiles, with attribution. Dark mode is a CSS filter on the tile pane
+  only, so the theme switch never refetches tiles or touches the risk colors, and no second tile provider (or key) is
+  needed. If OpenStreetMap refuses the first tiles, the map falls back once to the Humanitarian OSM style, also keyless.
 - **3D from real data, not decoration.** The city is NYC's 195 Neighborhood Tabulation Areas (NYC City Planning, via
   the NYC Health Department), projected with Mercator and extruded. The flood story uses a heightmap baked from
   USGS 3DEP elevation (`data/nyc-elevation.png`). Light follows the real sun position for each replayed hour.
 - **Values for every neighborhood.** DrainWatch models 39 neighborhoods. In 3D, physical values (heat index, AQI,
   gusts) are blended across all 195 with inverse-distance weighting, and the page says so. Risk ratings, which depend
   on vulnerability, appear only for the 39 rated places.
-- **Scroll that respects the reader.** Sections are pinned with CSS `position: sticky`; ScrollTrigger reports
-  progress, and the camera eases toward it. Scroll speed is never changed, and nothing snaps.
-- **One canvas, loaded late.** The 3D stage loads after first paint, the address search works before it, and the
-  canvas stops drawing once the app section is on screen. Pixel ratio is capped at 2; bloom is off on phones.
+- **No scroll-jacking.** The page scrolls normally. The 3D story lives in its own overlay with Play, a scrubber,
+  step buttons and arrow keys; the camera eases toward each position.
+- **One canvas, loaded on demand.** Three.js loads the first time the story opens, never on page load. Pixel ratio is
+  capped at 2; bloom is off on phones.
+- **Elevation in the browser.** `js/terrain.js` decodes the same USGS heightmap the 3D flood scene uses, for higher
+  ground, Compare and the Time Machine's flooded-land layer. Flooding there is a "bathtub" estimate: land below the
+  water level counts as flooded whether or not water can reach it.
 - **Fallbacks.** Without WebGL, with data saver on, or on low-memory devices, the story shows pre-rendered stills
   (`assets/stills/`). With reduced motion there are no camera flights or drift; each step cross-fades instead.
 - **Every fact is text.** The beats, the annotations, the readout and an hour-by-hour table are real HTML.
@@ -120,9 +138,11 @@ No API keys needed.
 | [National Weather Service](https://www.weather.gov/documentation/services-web-api) | Active alerts |
 | [NYC Open Data: 311](https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9) | Street flooding reports (optional free app token in `js/config.js`) |
 | [NYC GeoSearch](https://geosearch.planninglabs.nyc/) | Address lookup |
+| [NYC hurricane evacuation zones](https://maps.nyc.gov/hurricane/) (NYC Emergency Management, via NYC Open Data) | Evacuation zone in the address check |
+| [OpenStreetMap](https://www.openstreetmap.org/copyright) | Basemap tiles |
 | [FEMA National Flood Hazard Layer](https://hazards.fema.gov/femaportal/wps/portal/NFHLWMS) | Flood zones |
 | [NYC Health Department geography](https://github.com/nycehs/NYC_geography) (from NYC City Planning) | Neighborhood shapes |
-| [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (USGS 3DEP in the US) | Elevation for the flood story |
+| [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (USGS 3DEP in the US) | Elevation: the flood story, higher ground, Compare, flooded land |
 
 ## Scripts
 
@@ -133,24 +153,26 @@ All optional; the site runs without them.
 | `scripts/build-geodata.mjs` | Rebuilds `data/nyc-ntas.geojson` and links each NTA to the rated neighborhoods |
 | `scripts/bake-elevation.mjs` | Bakes `data/nyc-elevation.png` from elevation tiles |
 | `scripts/import-heat-drivers.mjs` | Adds tree canopy and air conditioning to the heat annotations, from CSVs you download from the [NYC Environment & Health Data Portal](https://a816-dohbesp.nyc.gov/IndicatorPublic/) |
-| `scripts/render-stills.mjs` | Renders the fallback stills with headless Chromium |
+| `scripts/render-stills.mjs` | Renders the story's fallback stills with headless Chromium |
 | `scripts/build-vendor.mjs` | Rebuilds the tree-shaken Three.js bundle |
 
 ## Accessibility
 
 - Every risk level is a word as well as a color, and the color ramps were checked for color-vision deficiency.
 - The 3D canvas is decorative (`aria-hidden`); everything it shows is in the text, including an hour-by-hour table.
-- Reduced motion: no camera flights or drift. Keyboard: hazard links, replay and sea-level pickers, and the
-  checklist tabs all work with the keyboard; a skip link jumps straight to the address check.
-- Light and inverted dark themes, and layouts down to 360 px wide, where the text sits below the city instead of over it.
+- Reduced motion: no camera flights, drift or autoplay; each story step cross-fades instead. Keyboard: hazard links,
+  replay pickers, the sea level slider, the tabs, Compare and the story player (arrows, space, Esc) all work with the
+  keyboard; a skip link jumps straight to the address check.
+- Light and dark themes, and layouts down to 360 px wide, where the map sits above the cards and the story's text sits below the city.
 
 ## Project layout
 
 ```
-index.html                 page: masthead, story sections, app, essays
+index.html                 page: masthead, map + cards dashboard, how it works, story overlay, compare dialog
 css/style.css              tokens (paper, ink, one data ramp per hazard), layout, both themes
-js/app.js                  state, live data, routing, hero, app section, address checks
-js/story/controller.js     scroll → camera pose, replay hour and story text
+js/app.js                  state, live data, routing, dashboard, address checks, Time Machine, Compare, story overlay
+js/terrain.js              elevation: higher ground, neighborhood elevation, flooded land (pure + a loader)
+js/story/controller.js     story position → camera pose, replay hour and story text; play and step
 js/story/stage.js          the Three.js scene (lazy-loaded)
 js/story/stories.js        the four stories; every number in the copy comes from data
 js/story/camera.js         camera poses and eased paths            ┐
@@ -164,7 +186,7 @@ js/data.js                 public APIs and their pure summarizers
 js/map.js, panels.js, charts.js, tide-chart.js, sections.js, content.js, ui.js
 data/                      neighborhood shapes and the elevation heightmap
 assets/stills/             fallback images for the story
-vendor/                    Three.js, GSAP, Leaflet
+vendor/                    Three.js, Leaflet
 scripts/                   data and asset builders
 tests/                     node --test suites
 ```

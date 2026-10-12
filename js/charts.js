@@ -8,11 +8,13 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 /** "Tue 9 PM" from "2026-09-29T21:00" or NOAA's "2026-09-29 21:00". */
 export function hourLabel(t) {
   if (!t) return '';
-  const d = new Date(`${t.slice(0, 10)}T12:00:00`);
-  const day = d.toLocaleDateString('en-US', { weekday: 'short' });
+  // plain arithmetic, not toLocaleDateString: charts redraw on every frame the sea level slider moves
+  const day = WEEKDAY[new Date(`${t.slice(0, 10)}T12:00:00Z`).getUTCDay()];
   const h = +t.slice(11, 13);
   const m = t.slice(14, 16);
   const hh = h % 12 === 0 ? 12 : h % 12;

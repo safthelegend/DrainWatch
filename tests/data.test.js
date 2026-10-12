@@ -6,11 +6,13 @@ import assert from 'node:assert/strict';
 import {
   fetchAirQuality,
   fetchAlerts,
+  fetchEvacZone,
   fetchTides,
   fetchWeather,
   hourIndex,
   nyHourKey,
   parseAlerts,
+  parseEvacZone,
   summarizeAir,
   summarizeWeather,
 } from '../js/data.js';
@@ -145,4 +147,21 @@ test('alerts outside the five boroughs are dropped', () => {
   assert.equal(alerts.length, 2);
   assert.deepEqual(alerts[0].boroughs, ['Manhattan', 'Brooklyn']);
   assert.equal(alerts[1].ends, '2026-07-01T20:00:00-04:00');
+});
+
+test('evacuation zones parse to a zone number, or none outside every zone', () => {
+  assert.deepEqual(parseEvacZone([{ hurricane_: '3' }], 'hurricane_'), { zone: '3' });
+  assert.deepEqual(parseEvacZone([{ zone: ' 1 ' }], 'zone'), { zone: '1' });
+  assert.deepEqual(parseEvacZone([], 'zone'), { zone: null });
+  assert.deepEqual(parseEvacZone([{ zone: 'X' }], 'zone'), { zone: null });
+  assert.throws(() => parseEvacZone([{ other: '2' }], 'zone'));
+  assert.throws(() => parseEvacZone({ error: true }, 'zone'));
+});
+
+test('the evacuation zone lookup keeps the first dataset and field that answer', async () => {
+  const calls = fakeFetch({ 'uihr-hn7s.json?%24select=zone&': [{ zone: '4' }], 'epne-qv9x.json?%24select=hurricane_evacuation_zone&': [{ hurricane_evacuation_zone: '2' }] });
+  assert.deepEqual(await fetchEvacZone(40.68, -74.01), { zone: '2' });
+  assert.ok(calls.every((u) => u.includes('intersects') && u.includes('POINT')));
+  fakeFetch({});
+  await assert.rejects(fetchEvacZone(40.68, -74.01));
 });
