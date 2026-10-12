@@ -6,6 +6,7 @@
 //   NYC Open Data    – 311 street flooding & sewer backup reports
 //   NYC GeoSearch    – address lookup
 //   FEMA NFHL        – flood zone at a point
+//   NYC Emergency Management (via NYC Open Data) – hurricane evacuation zones and centers
 //
 // Every fetcher throws on failure; app.js catches per source so one outage
 // doesn't take down the whole dashboard. The summarize* helpers are pure, so the
@@ -325,6 +326,50 @@ export async function fetch311History(lat, lon, meters = 500) {
   });
   const rows = await fetchJson(`${SOCRATA_311}?${q}`, { headers: socrataHeaders() });
   return rows.length ? parseInt(rows[0].n, 10) : 0;
+}
+
+// ---------------- Hurricane evacuation (NYC Emergency Management) ----------------
+
+const EVAC_ZONES = 'https://data.cityofnewyork.us/resource/epne-qv9x.json';
+const EVAC_CENTERS = 'https://data.cityofnewyork.us/resource/p5md-weyf.json';
+
+/** Hurricane evacuation zone ('1'–'6') at a point, or null outside every zone. */
+export async function fetchEvacuationZone(lat, lon) {
+  const q = new URLSearchParams({
+    $select: 'hurricane_',
+    $where: `intersects(the_geom, 'POINT(${lon.toFixed(6)} ${lat.toFixed(6)})')`,
+  });
+  const rows = await fetchJson(`${EVAC_ZONES}?${q}`, { headers: socrataHeaders(), timeoutMs: 12000 });
+  return parseEvacuationZone(rows);
+}
+
+export function parseEvacuationZone(rows) {
+  const zone = rows && rows[0] && String(rows[0].hurricane_ ?? '').trim();
+  return /^[1-6]$/.test(zone) ? zone : null;
+}
+
+let centersLoad = null;
+/** The city's ~60 hurricane evacuation centers, fetched once per visit. */
+export function fetchEvacuationCenters() {
+  centersLoad ||= fetchJson(`${EVAC_CENTERS}?$limit=500`, { headers: socrataHeaders(), timeoutMs: 12000 })
+    .then(parseEvacuationCenters)
+    .catch((err) => {
+      centersLoad = null; // try again on the next address
+      throw err;
+    });
+  return centersLoad;
+}
+
+export function parseEvacuationCenters(rows) {
+  return (rows || [])
+    .filter((r) => r.the_geom && r.the_geom.coordinates)
+    .map((r) => ({
+      name: r.bldg_name || 'Evacuation center',
+      address: [r.bldg_add, r.city].filter(Boolean).join(', '),
+      accessible: r.accessible === 'Y',
+      lon: r.the_geom.coordinates[0],
+      lat: r.the_geom.coordinates[1],
+    }));
 }
 
 // ---------------- Address search ----------------
