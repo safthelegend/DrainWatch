@@ -27,3 +27,10 @@ export function exposureWord(n) {
 export function windExposureWord(n) {
   return { 1: 'Sheltered', 2: 'Waterfront or tree-lined', 3: 'Exposed shoreline' }[n] || '—';
 }
+
+/** "−3.3 ft vs. normal high tide": a tide gauge reading with a real minus sign and its reference. */
+export function tideLevelText(ftAboveMhhw, decimals = 1) {
+  const v = Number(ftAboveMhhw.toFixed(decimals));
+  const sign = v < 0 ? '−' : v > 0 ? '+' : '';
+  return `${sign}${Math.abs(v).toFixed(decimals)} ft vs. normal high tide`;
+}

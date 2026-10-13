@@ -24,14 +24,14 @@
       } catch (e) {}
     </script>
   </head>
-  <body data-hazard="heat">
+  <body data-hazard="floods">
     <a class="skip" href="#check">Skip to the address check</a>
 
     <header class="masthead">
       <a class="wordmark" href="#top">DrainWatch</a>
       <nav class="sections" aria-label="Hazard">
-        <a href="#floods" data-hazard="floods">Floods</a>
-        <a href="#heat" data-hazard="heat" aria-current="page">Heat</a>
+        <a href="#floods" data-hazard="floods" aria-current="page">Floods</a>
+        <a href="#heat" data-hazard="heat">Heat</a>
         <a href="#air" data-hazard="air">Air</a>
         <a href="#wind" data-hazard="wind">Wind</a>
       </nav>
@@ -45,7 +45,42 @@
     </header>
 
     <main class="dash" id="top">
-      <!-- The map stays in view (sticky) while the cards beside it scroll. -->
+      <!-- Right now: the one number that matters, in plain words -->
+      <section class="card card-now" aria-labelledby="app-title">
+        <p class="label" id="app-kicker">Right now · Floods</p>
+        <div class="now-row">
+          <p class="mega mega-app" id="app-mega"><span class="mega-num">—</span><span class="mega-unit"></span></p>
+          <p class="mega-label" id="app-mega-label"></p>
+        </div>
+        <h1 class="h2" id="app-title">Checking conditions across the city…</h1>
+        <p class="dek" id="app-dek"></p>
+        <p class="note context" id="app-context"></p>
+        <p class="also" id="also-line" hidden></p>
+        <button type="button" class="story-cta" id="story-cta" aria-haspopup="dialog">
+          <span class="label" id="cta-kicker">3D replay</span>
+          <span class="cta-mega" id="cta-mega"></span>
+          <span class="cta-head" id="cta-head"></span>
+          <span class="cta-go">Play the story ▶</span>
+        </button>
+      </section>
+
+      <!-- Address check, with the refuge quick-finder -->
+      <section class="card" id="check" aria-labelledby="check-title">
+        <form class="address" id="address-form" role="search" autocomplete="off">
+          <label class="card-title" id="check-title" for="address-input">Check an address</label>
+          <p class="note">Risk for all four hazards, the official evacuation zone, and the nearest higher ground.</p>
+          <div class="address-row">
+            <input id="address-input" type="search" placeholder="160 Van Brunt St, Brooklyn" />
+            <button type="submit">Check</button>
+          </div>
+          <div class="address-results" id="address-results"></div>
+          <p class="note hint">Or click anywhere on the map.</p>
+        </form>
+        <div id="report" class="report-wrap" aria-live="polite"></div>
+      </section>
+
+      <!-- The map: after the first two cards in the page (and Tab) order, so the address check comes
+           before the map's controls; on wide screens the grid pins it in the left column. -->
       <section class="dash-map" aria-label="Risk map">
         <div class="map-shell">
           <div class="map" id="map" role="region" aria-label="Map of neighborhood risk. The Neighborhoods tab lists the same information."></div>
@@ -62,94 +97,58 @@
         </div>
       </section>
 
-      <div class="dash-panel">
-        <!-- Right now: the one number that matters, in plain words -->
-        <section class="card card-now" aria-labelledby="app-title">
-          <p class="label" id="app-kicker">Right now · Heat</p>
-          <div class="now-row">
-            <p class="mega mega-app" id="app-mega"><span class="mega-num">—</span><span class="mega-unit"></span></p>
-            <p class="mega-label" id="app-mega-label"></p>
+      <!-- Climate Time Machine: replays and sea level rise -->
+      <section class="card card-tm" id="time-machine" aria-labelledby="tm-title">
+        <div class="card-head">
+          <h2 class="card-title" id="tm-title">Climate Time Machine</h2>
+          <button type="button" class="preset" id="tm-preset">Sandy + 2080s seas</button>
+        </div>
+        <div class="modes">
+          <p class="label" id="mode-label">Conditions</p>
+          <div class="mode-list" id="mode-list" role="radiogroup" aria-labelledby="mode-label"></div>
+        </div>
+        <div class="slr" id="slr" hidden>
+          <div class="slr-top">
+            <label class="label" for="slr-range">Sea level rise</label>
+            <output class="slr-out" id="slr-out" for="slr-range">+0 in</output>
           </div>
-          <h1 class="h2" id="app-title">Checking conditions across the city…</h1>
-          <p class="dek" id="app-dek"></p>
-          <p class="note context" id="app-context"></p>
-          <p class="also" id="also-line" hidden></p>
-          <button type="button" class="story-cta" id="story-cta" aria-haspopup="dialog">
-            <span class="label" id="cta-kicker">3D replay</span>
-            <span class="cta-mega" id="cta-mega"></span>
-            <span class="cta-head" id="cta-head"></span>
-            <span class="cta-go">Play the story ▶</span>
-          </button>
-        </section>
+          <input type="range" id="slr-range" min="0" max="75" step="1" value="0" />
+          <div class="slr-stops" id="slr-stops"></div>
+          <p class="note" id="slr-note"></p>
+        </div>
+        <div class="tm-delta" id="tm-delta"></div>
+      </section>
 
-        <!-- Address check, with the refuge quick-finder -->
-        <section class="card" id="check" aria-labelledby="check-title">
-          <form class="address" id="address-form" role="search" autocomplete="off">
-            <label class="card-title" id="check-title" for="address-input">Check an address</label>
-            <p class="note">Risk for all four hazards, the official evacuation zone, and the nearest higher ground.</p>
-            <div class="address-row">
-              <input id="address-input" type="search" placeholder="160 Van Brunt St, Brooklyn" />
-              <button type="submit">Check</button>
-            </div>
-            <div class="address-results" id="address-results"></div>
-            <p class="note hint">Or click anywhere on the map.</p>
-          </form>
-          <div id="report" class="report-wrap" aria-live="polite"></div>
-        </section>
+      <!-- Explore: tabs instead of long sections -->
+      <section class="card card-tabs" id="explore" aria-label="Explore">
+        <div class="tabs" role="tablist" aria-label="Explore" id="explore-tabs">
+          <button type="button" role="tab" id="tab-ranking" aria-controls="panel-ranking" aria-selected="true" data-tab="ranking">Neighborhoods</button>
+          <button type="button" role="tab" id="tab-forecast" aria-controls="panel-forecast" aria-selected="false" tabindex="-1" data-tab="forecast">Forecast &amp; alerts</button>
+          <button type="button" role="tab" id="tab-ready" aria-controls="panel-ready" aria-selected="false" tabindex="-1" data-tab="ready">Be ready</button>
+        </div>
 
-        <!-- Climate Time Machine: replays and sea level rise -->
-        <section class="card card-tm" id="time-machine" aria-labelledby="tm-title">
-          <div class="card-head">
-            <h2 class="card-title" id="tm-title">Climate Time Machine</h2>
-            <button type="button" class="preset" id="tm-preset">Sandy + 2080s seas</button>
-          </div>
-          <div class="modes">
-            <p class="label" id="mode-label">Conditions</p>
-            <div class="mode-list" id="mode-list" role="radiogroup" aria-labelledby="mode-label"></div>
-          </div>
-          <div class="slr" id="slr" hidden>
-            <div class="slr-top">
-              <label class="label" for="slr-range">Sea level rise</label>
-              <output class="slr-out" id="slr-out" for="slr-range">+0 in</output>
-            </div>
-            <input type="range" id="slr-range" min="0" max="75" step="1" value="0" />
-            <div class="slr-stops" id="slr-stops"></div>
-            <p class="note" id="slr-note"></p>
-          </div>
-          <div class="tm-delta" id="tm-delta"></div>
-        </section>
+        <div class="tab-panel" role="tabpanel" id="panel-ranking" aria-labelledby="tab-ranking">
+          <p class="note" id="ranking-note"></p>
+          <table class="table" id="ranking">
+            <thead>
+              <tr><th scope="col" class="num">#</th><th scope="col">Neighborhood</th><th scope="col">Risk</th><th scope="col" class="num">Score</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <button type="button" class="more" id="ranking-more">Show all neighborhoods</button>
+        </div>
 
-        <!-- Explore: tabs instead of long sections -->
-        <section class="card card-tabs" id="explore" aria-label="Explore">
-          <div class="tabs" role="tablist" aria-label="Explore" id="explore-tabs">
-            <button type="button" role="tab" id="tab-ranking" aria-controls="panel-ranking" aria-selected="true" data-tab="ranking">Neighborhoods</button>
-            <button type="button" role="tab" id="tab-forecast" aria-controls="panel-forecast" aria-selected="false" tabindex="-1" data-tab="forecast">Forecast &amp; alerts</button>
-            <button type="button" role="tab" id="tab-ready" aria-controls="panel-ready" aria-selected="false" tabindex="-1" data-tab="ready">Be ready</button>
-          </div>
+        <div class="tab-panel details" role="tabpanel" id="panel-forecast" aria-labelledby="tab-forecast" hidden>
+          <div id="details"></div>
+        </div>
 
-          <div class="tab-panel" role="tabpanel" id="panel-ranking" aria-labelledby="tab-ranking">
-            <p class="note" id="ranking-note"></p>
-            <table class="table" id="ranking">
-              <thead>
-                <tr><th scope="col" class="num">#</th><th scope="col">Neighborhood</th><th scope="col">Risk</th><th scope="col" class="num">Score</th></tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-            <button type="button" class="more" id="ranking-more">Show all neighborhoods</button>
-          </div>
-
-          <div class="tab-panel details" role="tabpanel" id="panel-forecast" aria-labelledby="tab-forecast" hidden>
-            <div id="details"></div>
-          </div>
-
-          <div class="tab-panel" role="tabpanel" id="panel-ready" aria-labelledby="tab-ready" hidden>
-            <p class="note">Small steps that save lives in New York's most common disasters. Check off what you've done; it stays in this browser only.</p>
-            <p class="progress" id="prep-progress" aria-live="polite"></p>
-            <div class="prep-nav" id="prep-tabs" role="tablist" aria-label="Checklist by hazard"></div>
-            <ul class="checklist" id="checklist" role="tabpanel"></ul>
-          </div>
-        </section>
-      </div>
+        <div class="tab-panel" role="tabpanel" id="panel-ready" aria-labelledby="tab-ready" hidden>
+          <p class="note">Small steps that save lives in New York's most common disasters. Check off what you've done; it stays in this browser only.</p>
+          <p class="progress" id="prep-progress" aria-live="polite"></p>
+          <div class="prep-nav" id="prep-tabs" role="tablist" aria-label="Checklist by hazard"></div>
+          <ul class="checklist" id="checklist" role="tabpanel"></ul>
+        </div>
+      </section>
     </main>
 
     <section class="method" id="method" aria-labelledby="method-title">
@@ -200,7 +199,7 @@
     <footer class="footer">
       <p class="wordmark">DrainWatch</p>
       <p>Built for New Yorkers, for the Congressional App Challenge. Data from NOAA, the National Weather Service, Open-Meteo, NYC Open Data, FEMA, USGS and the NYC Health Department.
-        Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors. <a href="https://github.com/sonamt17/drainwatch" target="_blank" rel="noopener">Source code</a>.</p>
+        Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors. <a href="https://github.com/safthelegend/DrainWatch" target="_blank" rel="noopener">Source code</a>.</p>
     </footer>
 
     <!-- The 3D story: opt-in, full screen, stepped with buttons, the scrubber or the arrow keys. -->
@@ -222,18 +221,23 @@
         </div>
 
         <div class="chapter chapter-timeline" aria-live="polite">
-          <p class="label" id="timeline-kicker">72 hours</p>
-          <h2 class="h2" id="timeline-title">Three days, and nights that never cooled off</h2>
+          <p class="label" id="timeline-kicker">One night</p>
+          <h2 class="h2" id="timeline-title">The harbor rose all day, then poured into the city</h2>
           <p class="dek" id="timeline-dek"></p>
-          <p class="clock"><span id="clock-time">Friday, midnight</span></p>
+          <p class="clock"><span id="clock-time">Monday, 6 a.m.</span></p>
           <p class="readout" aria-hidden="true"><span class="readout-num" id="readout-num">—</span><span class="readout-unit" id="readout-unit"></span></p>
           <ol class="beats" id="beats"></ol>
+          <figure class="city-legend" id="city-legend">
+            <div class="city-legend-bar" aria-hidden="true"></div>
+            <div class="city-legend-ends"><span id="city-legend-low"></span><span id="city-legend-high"></span></div>
+            <figcaption class="note" id="city-legend-text"></figcaption>
+          </figure>
           <p class="modeled" id="timeline-note">Modeled from 39 neighborhoods. Approximate reconstruction from NOAA and NWS records.</p>
         </div>
 
         <div class="chapter chapter-exposed" aria-live="polite">
           <p class="label" id="exposed-kicker">Who's exposed</p>
-          <h2 class="h2" id="exposed-title">The same heat is not equally dangerous everywhere</h2>
+          <h2 class="h2" id="exposed-title">Where the water reached first</h2>
           <p class="dek" id="exposed-dek"></p>
           <ol class="stops" id="stops"></ol>
           <p class="modeled" id="exposed-note"></p>

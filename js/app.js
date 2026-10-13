@@ -2,7 +2,7 @@
 // dashboard cards and the 3D story together. State lives in one object; each
 // render*() redraws its part of the page from it.
 
-import { AREAS, TIDE_STATIONS } from './config.js';
+import { AREAS, HEAT_DRIVERS_URL, TIDE_STATIONS } from './config.js';
 import {
   fetch311History,
   fetchAirQuality,
@@ -13,6 +13,7 @@ import {
   fetchTides,
   fetchWeather,
   geocode,
+  isExactAddress,
   reverseGeocode,
 } from './data.js';
 import { exposureFromComplaintHistory, exposureFromFemaZone, LEVELS, levelLabel } from './risk.js';
@@ -71,7 +72,7 @@ const COMPARE_PRESETS = [
 ];
 
 const state = {
-  hazard: 'heat',
+  hazard: 'floods',
   scenario: 'live', // what the dashboard shows: live data or a replay
   slrInches: 0,
   live: { mode: 'live', tides: {}, weather: null, air: null, alerts: null, reports: null },
@@ -602,7 +603,8 @@ function wireSearch(formId, inputId, resultsId) {
         results.innerHTML = '<p>No New York City address found. Try adding the borough.</p>';
         return;
       }
-      if (matches.length === 1) {
+      // one match, or the first is exactly what was typed: check it now instead of asking
+      if (matches.length === 1 || isExactAddress(text, matches[0].label, matches[0].borough)) {
         results.innerHTML = '';
         checkPoint(matches[0]);
         return;
@@ -990,7 +992,7 @@ readHash();
 markHazard(state.hazard);
 syncThemeButton();
 $('slr-range').max = SLR_MAX_INCHES;
-if (window.matchMedia('(max-width: 600px)').matches) $('layers-box').open = false; // phones: keep the map clear
+if (window.matchMedia('(max-width: 999px)').matches) $('layers-box').open = false; // narrow screens: keep the map clear
 
 const story = createStoryController({ theme: effectiveTheme(), onPosition: onStoryPosition });
 await story.setHazard(state.hazard);
@@ -1031,13 +1033,16 @@ setInterval(() => {
   if (!document.hidden) loadLive();
 }, REFRESH_MS);
 
-// optional extra heat drivers (tree canopy, air conditioning) from scripts/import-heat-drivers.mjs
-fetch('data/heat-drivers.json')
-  .then((r) => (r.ok ? r.json() : null))
-  .then((d) => {
-    if (!d) return;
-    state.heatDrivers = d;
-    stories.clear();
-    if (state.hazard === 'heat') story.setHazard('heat', { heatDrivers: d });
-  })
-  .catch(() => {});
+// optional extra heat drivers (tree canopy, air conditioning) from scripts/import-heat-drivers.mjs,
+// fetched only when config.js says the file ships
+if (HEAT_DRIVERS_URL) {
+  fetch(HEAT_DRIVERS_URL)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (!d) return;
+      state.heatDrivers = d;
+      stories.clear();
+      if (state.hazard === 'heat') story.setHazard('heat', { heatDrivers: d });
+    })
+    .catch(() => {});
+}

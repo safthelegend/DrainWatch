@@ -11,7 +11,7 @@ import { WIND_THRESHOLDS } from './storm-risk.js';
 import { HAZARDS, HAZARD_ORDER, alertsFor } from './hazards.js';
 import { timeChartSvg } from './charts.js';
 import { tideChartSvg } from './tide-chart.js';
-import { esc, exposureWord, fmtTime, level, windExposureWord } from './ui.js';
+import { esc, exposureWord, fmtTime, level, tideLevelText, windExposureWord } from './ui.js';
 
 const quiet = (text) => `<p class="quiet">${text}</p>`;
 /** Live data covers the next 48 hours; a replay covers its own window, so it says nothing. */
@@ -227,7 +227,7 @@ export function areaPopupHtml(hazard, r, available, ntaName) {
 }
 
 export function stationPopupHtml(key, s, tide) {
-  const text = tide && tide.latest ? `${tide.latest.v.toFixed(2)} ft vs. normal high tide` : 'No data right now';
+  const text = tide && tide.latest ? tideLevelText(tide.latest.v, 2) : 'No data right now';
   return `<div class="popup"><p class="label">NOAA tide gauge</p><h4>${esc(s.name)}</h4><p>${esc(text)}</p>
     <p><a href="https://tidesandcurrents.noaa.gov/stationhome.html?id=${s.id}" target="_blank" rel="noopener">Station ${s.id}</a></p></div>`;
 }

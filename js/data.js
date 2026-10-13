@@ -340,6 +340,38 @@ export async function geocode(text) {
   }));
 }
 
+// Street words people abbreviate; both sides are normalized to the long form.
+const STREET_WORDS = {
+  st: 'street', ave: 'avenue', av: 'avenue', blvd: 'boulevard', rd: 'road', dr: 'drive', pl: 'place', pkwy: 'parkway',
+  ln: 'lane', ct: 'court', ter: 'terrace', hwy: 'highway', sq: 'square', n: 'north', s: 'south', e: 'east', w: 'west',
+};
+const BOROUGH_WORDS = { bk: 'brooklyn', bklyn: 'brooklyn', bx: 'bronx', 'the bronx': 'bronx', si: 'staten island', mn: 'manhattan', qn: 'queens', 'new york': 'manhattan', ny: 'manhattan' };
+const norm = (s) =>
+  String(s)
+    .toLowerCase()
+    .replace(/[.#']/g, '')
+    .replace(/(\d)(st|nd|rd|th)\b/g, '$1')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => STREET_WORDS[w] || w)
+    .join(' ');
+
+/**
+ * Is a GeoSearch result exactly what the reader typed? The street address must match
+ * word for word (after "St" → "Street" and the like); a borough, if typed, must match
+ * too. "160 Van Brunt St" and "160 van brunt street, brooklyn" both match
+ * "160 VAN BRUNT STREET, Brooklyn, NY, USA"; "160 Van Brunt" does not.
+ */
+export function isExactAddress(typed, label, borough = '') {
+  const [line, ...rest] = String(typed).split(',');
+  if (!/^\s*\d/.test(line)) return false; // a house number makes it an address, not a place name
+  if (norm(line) !== norm(String(label).split(',')[0])) return false;
+  const typedBoro = norm(rest.join(' ')).replace(/\b(ny|nyc|usa|new york city|\d{5})\b/g, '').trim();
+  if (!typedBoro) return true;
+  const want = BOROUGH_WORDS[typedBoro] || typedBoro;
+  return norm(borough || label).includes(want);
+}
+
 /** Nearest address label for a point, or null. */
 export async function reverseGeocode(lat, lon) {
   const q = new URLSearchParams({ 'point.lat': lat.toFixed(6), 'point.lon': lon.toFixed(6), size: '1' });
@@ -375,18 +407,16 @@ function round2(n) {
 
 // ---------------- Hurricane evacuation zone ----------------
 //
-// NYC Emergency Management's hurricane evacuation zones, from NYC Open Data
-// (no key). The portal has published the layer under more than one dataset id
-// and field name over the years, so every combination is asked at once and the
-// first in this order that answers wins. Selecting only the zone field keeps the
-// citywide polygons out of the response.
+// NYC Emergency Management's hurricane evacuation zones on NYC Open Data (no key):
+// dataset epne-qv9x, zone in the `hurricane_` column, polygons in `the_geom`.
+// Checked against the live API: 160 Van Brunt St, Brooklyn answers {"hurricane_":"1"}.
+// Selecting only the zone keeps the citywide polygons out of the response.
 
-const EVAC_DATASETS = ['epne-qv9x', 'uihr-hn7s'];
-const EVAC_FIELDS = ['hurricane_', 'hurricane_evacuation_zone', 'zone'];
+export const EVAC_ZONES = { dataset: 'epne-qv9x', field: 'hurricane_', geometry: 'the_geom' };
 export const EVAC_ZONE_FINDER = 'https://maps.nyc.gov/hurricane/';
 
 /** { zone: '1'…'6' } inside a zone, { zone: null } outside every zone. Throws on anything unexpected. */
-export function parseEvacZone(rows, field) {
+export function parseEvacZone(rows, field = EVAC_ZONES.field) {
   if (!Array.isArray(rows)) throw new Error('unexpected response');
   if (!rows.length) return { zone: null };
   const z = String(rows[0][field] ?? '').trim().toUpperCase();
@@ -396,17 +426,7 @@ export function parseEvacZone(rows, field) {
 }
 
 export async function fetchEvacZone(lat, lon) {
-  const point = `POINT (${lon.toFixed(6)} ${lat.toFixed(6)})`;
-  const tries = EVAC_DATASETS.flatMap((id) =>
-    EVAC_FIELDS.map((field) => {
-      const q = new URLSearchParams({ $select: field, $where: `intersects(the_geom, '${point}')`, $limit: '1' });
-      return fetchJson(`https://data.cityofnewyork.us/resource/${id}.json?${q}`, { timeoutMs: 10000, headers: socrataHeaders() }).then((rows) =>
-        parseEvacZone(rows, field),
-      );
-    }),
-  );
-  const settled = await Promise.allSettled(tries);
-  const hit = settled.find((r) => r.status === 'fulfilled');
-  if (!hit) throw settled[0].reason;
-  return hit.value;
+  const { dataset, field, geometry } = EVAC_ZONES;
+  const q = new URLSearchParams({ $select: field, $where: `intersects(${geometry}, 'POINT (${lon.toFixed(6)} ${lat.toFixed(6)})')`, $limit: '1' });
+  return parseEvacZone(await fetchJson(`https://data.cityofnewyork.us/resource/${dataset}.json?${q}`, { timeoutMs: 10000, headers: socrataHeaders() }));
 }

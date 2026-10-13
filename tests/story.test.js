@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { centroid, idw, inGeometry, kmBetween, project, unproject } from '../js/story/geo.js';
 import { daylight, nyLocalToUtc, solarPosition } from '../js/story/sun.js';
 import { lerpPose, poseAt, poseToCamera, stepAt, stepPath, turn } from '../js/story/camera.js';
-import { buildStory, lead, ntaBlender, storyTime, STORIES, waterNavdMeters } from '../js/story/stories.js';
+import { beatAt, buildStory, heatHazardSmooth, ntaBlender, storyTime, STORIES, waterNavdMeters } from '../js/story/stories.js';
 import { extract, parseCsv } from '../scripts/import-heat-drivers.mjs';
 import { AREAS } from '../js/config.js';
 
@@ -106,8 +106,7 @@ test('every story builds, and its copy is computed from the replay', () => {
 test('story times read like a newspaper', () => {
   assert.equal(storyTime('2019-07-19T15:00'), 'Friday, 3 p.m.');
   assert.equal(storyTime('2019-07-20T12:00'), 'Saturday, noon');
-  assert.equal(lead('2019-07-19T23:00', { day: false }), '11 p.m.');
-  assert.equal(lead('2020-08-04T12:00'), 'Tuesday, noon.');
+  assert.equal(storyTime('2019-07-19T23:00', { day: false }), '11 p.m.');
 });
 
 test('the neighborhood blender spreads 39 points over every NTA', () => {
@@ -116,7 +115,7 @@ test('the neighborhood blender spreads 39 points over every NTA', () => {
     { properties: { cx: -73.86, cy: 40.6 } },
   ];
   const story = buildStory('heat');
-  const at = ntaBlender(ntas, story);
+  const at = ntaBlender(ntas, story, { values: story.values });
   const k = story.peak.index;
   const eh = story.values[AREAS.findIndex((a) => a.id === 'east-harlem')][k];
   close(at(k)[0], eh, 1e-3, 'an NTA on a modeled point takes its value');
@@ -142,4 +141,87 @@ test('the 3D ramps match the CSS ramps, light and dark', async () => {
     assert.deepEqual(stops(lightRule), light, `${hazard} light`);
     assert.deepEqual(stops(darkRule), dark, `${hazard} dark`);
   }
+});
+
+test('risk ramps: Low is a quiet near-neutral, color starts at Elevated, and both themes run the same way', async () => {
+  const { RAMPS } = await import('../js/story/palette.js');
+  // sRGB hex → OKLCH lightness, chroma and hue
+  const oklch = (hex) => {
+    const lin = [1, 3, 5].map((i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    const [l, m, s] = [
+      0.4122214708 * lin[0] + 0.5363325363 * lin[1] + 0.0514459929 * lin[2],
+      0.2119034982 * lin[0] + 0.6806995451 * lin[1] + 0.1073969566 * lin[2],
+      0.0883024619 * lin[0] + 0.2817188376 * lin[1] + 0.6299787005 * lin[2],
+    ].map(Math.cbrt);
+    const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+    const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+    const b = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+    return { L, C: Math.hypot(a, b), h: ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360 };
+  };
+  const SURFACE = { light: oklch('#f6f3ec').L, dark: oklch('#0f0f0e').L };
+  for (const [hazard, themes] of Object.entries(RAMPS)) {
+    for (const [theme, stops] of Object.entries(themes)) {
+      const [, low, elevated, high, severe] = stops.map(oklch);
+      assert.ok(low.C < 0.03, `${hazard} ${theme}: Low should be near-neutral (chroma ${low.C.toFixed(3)})`);
+      for (const s of [elevated, high, severe]) assert.ok(s.C > 0.07, `${hazard} ${theme}: Elevated and above carry the color`);
+      // every step moves further from the page than the one before: quiet → loud in both themes
+      const away = [low, elevated, high, severe].map((s) => Math.abs(s.L - SURFACE[theme]));
+      away.slice(1).forEach((d, i) => assert.ok(d > away[i] + 0.05, `${hazard} ${theme}: steps must get louder`));
+    }
+    // the same hue means the same level in both themes
+    const hueGap = Math.abs(oklch(themes.light[4]).h - oklch(themes.dark[4]).h);
+    assert.ok(Math.min(hueGap, 360 - hueGap) < 20, `${hazard}: Severe has the same hue in light and dark`);
+  }
+});
+
+test('beat text never repeats or contradicts the clock above it', () => {
+  const timeLead = /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|midnight|noon|\d{1,2} [ap]\.m\.)/i;
+  for (const hazard of Object.keys(STORIES)) {
+    const s = buildStory(hazard);
+    for (const b of s.beats) assert.doesNotMatch(b.text, timeLead, `${hazard}: "${b.text}" starts with a time`);
+    // the first beat adds something: it doesn't restate the readout's number for that hour
+    const first = s.beats[0];
+    const v = s.citywide[first.index];
+    const shown = hazard === 'floods' ? v.toFixed(1) : String(Math.round(v));
+    assert.ok(!first.text.includes(shown), `${hazard}: first beat repeats the readout (${shown})`);
+  }
+});
+
+test('a beat fades once the clock is more than an hour past it', () => {
+  const s = buildStory('heat');
+  const [b0, b1] = s.beats;
+  assert.equal(beatAt(s, b0.index - 0.6), -1, 'nothing while the clock shows the hour before');
+  assert.equal(beatAt(s, b0.index - 0.4), 0, 'on as soon as the clock shows its hour');
+  assert.equal(beatAt(s, b0.index + 1), 0, 'still on an hour later');
+  assert.equal(beatAt(s, b0.index + 1.6), -1, 'gone once the clock is two hours past');
+  assert.equal(beatAt(s, b1.index + 0.2), 1);
+  const f = buildStory('floods');
+  const slrBeat = f.beats.findIndex((b) => b.slr);
+  assert.equal(beatAt(f, f.peak.index, 0.5), slrBeat, 'the sea level beat shows while the sea rises');
+});
+
+test('the 3D city shows differences between neighborhoods, not one uniform slab', () => {
+  const at = (s, id) => s.city.values[AREAS.findIndex((a) => a.id === id)][s.peak.index];
+  const spread = (s, k) => {
+    const col = s.city.values.map((row) => row[k]);
+    return Math.max(...col) - Math.min(...col);
+  };
+  // heat: the same weather is more dangerous where vulnerability is higher
+  const heat = buildStory('heat');
+  assert.ok(at(heat, 'east-harlem') - at(heat, 'park-slope') > 0.3, 'East Harlem (HVI 5) stands well above Park Slope (HVI 1)');
+  assert.equal(heatHazardSmooth(80), 1);
+  assert.equal(heatHazardSmooth(102.5), 3.5);
+  assert.equal(heatHazardSmooth(110), 4);
+  // wind: exposed shorelines stand out at the peak
+  const wind = buildStory('wind');
+  assert.ok(at(wind, 'rockaway') > 0.9 && at(wind, 'fordham') < 0.25);
+  for (const s of [heat, wind, buildStory('air')]) {
+    assert.ok(spread(s, s.peak.index) > 0.4, `${s.hazard}: neighborhoods differ visibly at the peak`);
+    assert.ok(s.city.values.flat().every((v) => v >= 0 && v <= 1));
+    assert.match(s.city.legend.text, /Height and color/);
+  }
+  assert.equal(buildStory('floods').city, null, 'floods show water on terrain instead');
 });

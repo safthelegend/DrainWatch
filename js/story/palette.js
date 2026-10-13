@@ -2,10 +2,10 @@
 // (r0 quiet end, then Low → Severe); keep the two in sync.
 
 export const RAMPS = {
-  heat: { light: ['#f3dfb3', '#d4842a', '#d2602a', '#bb3522', '#7f1712'], dark: ['#3a1d10', '#8a3d1d', '#c24a22', '#ec6a2c', '#ffb547'] },
-  floods: { light: ['#cfe8f1', '#5fb3d6', '#2f86bf', '#195a97', '#0b2f5e'], dark: ['#10283c', '#1d5a85', '#2a83bd', '#52b4e0', '#b0ecf8'] },
-  air: { light: ['#e4dcf2', '#a48fd6', '#7f5fc0', '#5c3593', '#3a1a60'], dark: ['#261a3f', '#5a3d8f', '#7d5cc0', '#a587e0', '#dccff7'] },
-  wind: { light: ['#d5eee3', '#5fb895', '#2f8f6f', '#1a6650', '#0b4034'], dark: ['#0f2c24', '#1d6650', '#2a8d6d', '#4dbb92', '#b0ecd0'] },
+  heat: { light: ['#e5dcd7', '#b6aaa2', '#cc7c37', '#b14420', '#721d17'], dark: ['#231e1b', '#4d443e', '#8d5321', '#d05933', '#fd7466'] },
+  floods: { light: ['#d8dfe6', '#a3aeb7', '#4299dc', '#136dbf', '#0e3d7d'], dark: ['#1b2024', '#3f474f', '#296898', '#2985df', '#68a5ff'] },
+  air: { light: ['#dfdce5', '#aeaab6', '#9f7ed6', '#7854b6', '#462e77'], dark: ['#201e23', '#47454e', '#6c5594', '#906ad5', '#ad8dfe'] },
+  wind: { light: ['#d8e1db', '#a3b0a8', '#35aa76', '#028058', '#044c35'], dark: ['#1b211e', '#3f4943', '#1f744f', '#0a9b6c', '#0bc18d'] },
 };
 
 export const NEUTRAL = {

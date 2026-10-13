@@ -14,6 +14,11 @@
 // The site works without one. See README.md ("API keys") for how to get it.
 export const NYC_OPEN_DATA_APP_TOKEN = '';
 
+// Optional tree canopy and air conditioning rates for the heat story's annotations.
+// scripts/import-heat-drivers.mjs writes data/heat-drivers.json; set this to that
+// path once the file is committed. Left null, the page never asks for it (no 404).
+export const HEAT_DRIVERS_URL = null;
+
 // NOAA tide stations. greatDiurnalRangeFt = MHHW − MLLW (approximate).
 export const TIDE_STATIONS = {
   battery: { id: '8518750', name: 'The Battery', lat: 40.7006, lon: -74.0142, greatDiurnalRangeFt: 5.1 },

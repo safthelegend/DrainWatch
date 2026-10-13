@@ -77,10 +77,18 @@ Add `?stills` to see the story's no-WebGL fallback.
 node --test
 ```
 
-65 tests cover the four risk models (against the NWS heat index chart, the EPA AQI breakpoints, and NWS wind and
+77 tests cover the four risk models (against the NWS heat index chart, the EPA AQI breakpoints, and NWS wind and
 flood criteria), every replay, sea level rise, the elevation helpers (higher ground, flooded land), the story's camera
-paths, the sun's position, the data layer (with a fake `fetch`), and that the 3D colors match the CSS. GitHub Actions
+paths, beats and 3D values, the sun's position, the data layer (with a fake `fetch`), that the 3D colors match the CSS
+and the risk ramps stay quiet at Low, and that the address search is under 20 Tab presses from the top. GitHub Actions
 runs them on every push.
+
+Two browser checks (optional, they need Playwright like `scripts/render-stills.mjs`):
+
+```bash
+node scripts/check-tab-order.mjs http://localhost:8000   # Tab presses to the address search, desktop and phone
+node scripts/check-console.mjs http://localhost:8000     # zero console errors, with every outside service mocked
+```
 
 ## How it's built
 
@@ -92,9 +100,13 @@ runs them on every push.
 - **3D from real data, not decoration.** The city is NYC's 195 Neighborhood Tabulation Areas (NYC City Planning, via
   the NYC Health Department), projected with Mercator and extruded. The flood story uses a heightmap baked from
   USGS 3DEP elevation (`data/nyc-elevation.png`). Light follows the real sun position for each replayed hour.
-- **Values for every neighborhood.** DrainWatch models 39 neighborhoods. In 3D, physical values (heat index, AQI,
-  gusts) are blended across all 195 with inverse-distance weighting, and the page says so. Risk ratings, which depend
-  on vulnerability, appear only for the 39 rated places.
+- **Differences you can see.** DrainWatch models 39 neighborhoods, and raw values barely differ across the city, so the
+  3D timeline shows differences instead: for heat, how hot it feels times each neighborhood's Heat Vulnerability Index
+  factor; for air and wind, how much worse than the citywide average at that hour. Values are blended across all 195
+  neighborhoods with inverse-distance weighting, and a legend beside the city says what height and color mean. Risk
+  ratings appear only for the 39 rated places.
+- **Quiet when it's calm.** Low risk is a near-neutral tint in both themes; color starts at Elevated, and the light and
+  dark ramps run the same way (one hue per hazard, louder toward Severe), checked by a test.
 - **No scroll-jacking.** The page scrolls normally. The 3D story lives in its own overlay with Play, a scrubber,
   step buttons and arrow keys; the camera eases toward each position.
 - **One canvas, loaded on demand.** Three.js loads the first time the story opens, never on page load. Pixel ratio is
@@ -138,7 +150,7 @@ No API keys needed.
 | [National Weather Service](https://www.weather.gov/documentation/services-web-api) | Active alerts |
 | [NYC Open Data: 311](https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9) | Street flooding reports (optional free app token in `js/config.js`) |
 | [NYC GeoSearch](https://geosearch.planninglabs.nyc/) | Address lookup |
-| [NYC hurricane evacuation zones](https://maps.nyc.gov/hurricane/) (NYC Emergency Management, via NYC Open Data) | Evacuation zone in the address check |
+| [NYC hurricane evacuation zones](https://data.cityofnewyork.us/d/epne-qv9x) (NYC Emergency Management, via NYC Open Data, dataset `epne-qv9x`) | Evacuation zone in the address check |
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) | Basemap tiles |
 | [FEMA National Flood Hazard Layer](https://hazards.fema.gov/femaportal/wps/portal/NFHLWMS) | Flood zones |
 | [NYC Health Department geography](https://github.com/nycehs/NYC_geography) (from NYC City Planning) | Neighborhood shapes |
@@ -154,6 +166,8 @@ All optional; the site runs without them.
 | `scripts/bake-elevation.mjs` | Bakes `data/nyc-elevation.png` from elevation tiles |
 | `scripts/import-heat-drivers.mjs` | Adds tree canopy and air conditioning to the heat annotations, from CSVs you download from the [NYC Environment & Health Data Portal](https://a816-dohbesp.nyc.gov/IndicatorPublic/) |
 | `scripts/render-stills.mjs` | Renders the story's fallback stills with headless Chromium |
+| `scripts/check-tab-order.mjs` | Counts Tab presses from the top of the page to the address search (must be under 20) |
+| `scripts/check-console.mjs` | Loads the page with every outside service mocked and fails on any console error |
 | `scripts/build-vendor.mjs` | Rebuilds the tree-shaken Three.js bundle |
 
 ## Accessibility
@@ -193,7 +207,7 @@ tests/                     node --test suites
 
 ## Next steps
 
-- Real tree canopy and air conditioning rates per neighborhood (run `scripts/import-heat-drivers.mjs`).
+- Real tree canopy and air conditioning rates per neighborhood (run `scripts/import-heat-drivers.mjs`, then set `HEAT_DRIVERS_URL` in `js/config.js`).
 - Building footprints for Manhattan context in 3D.
 - NYC's official Stormwater Flood Map polygons, and a small backend that caches API responses and sends opt-in alerts.
 - Translations into Spanish, Chinese, Russian, Bengali and other languages New Yorkers speak at home.
