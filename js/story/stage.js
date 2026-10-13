@@ -301,14 +301,14 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
     if (memo === lastWater) return;
     lastWater = memo;
     const ramp = RAMPS.floods[state.theme];
-    // flooded land: the flood ramp by depth (1 ft of water reads Low, 6+ ft Severe)
+    // flooded land: the flood ramp by depth (shallow water reads Elevated, 6+ ft Severe)
     const u = floodUniforms;
     u.uWater.value = meters;
     u.uLand.value.copy(srgb(hexToRgb(NEUTRAL[state.theme].land)));
-    u.uShallow.value.copy(srgb(hexToRgb(ramp[1])));
+    u.uShallow.value.copy(srgb(hexToRgb(ramp[2])));
     u.uDeep.value.copy(srgb(hexToRgb(state.theme === 'dark' ? ramp[4] : ramp[3])));
     floodSea.position.y = Math.max(0, meters) * TERRAIN_EXAGGERATION + 0.0005;
-    floodSea.material.color.copy(srgb(hexToRgb(ramp[1])));
+    floodSea.material.color.copy(srgb(hexToRgb(ramp[2])));
     floodSea.material.opacity = 0.16;
     state.dirty = true;
   }

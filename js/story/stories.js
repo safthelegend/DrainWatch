@@ -4,6 +4,7 @@
 
 import { AREAS } from '../config.js';
 import { aqiCategory } from '../air-risk.js';
+import { vulnerabilityFactor } from '../heat-risk.js';
 import { assessPlace } from '../hazards.js';
 import { buildScenario, scenarioById, scenarioHourly, SEA_LEVEL_STOPS } from '../scenarios.js';
 import { kmBetween } from './geo.js';
@@ -22,13 +23,6 @@ export function storyTime(key, { day = true } = {}) {
   return day ? `${WEEKDAY[d.getUTCDay()]}, ${clock}` : clock;
 }
 
-/** A time that opens a sentence: "Friday, 3 p.m." never gets a second period. */
-export function lead(key, opts) {
-  const t = storyTime(key, opts);
-  const cap = t[0].toUpperCase() + t.slice(1);
-  return cap.endsWith('.') ? cap : `${cap}.`;
-}
-
 const r0 = (v) => Math.round(v);
 const r1 = (v) => (Math.round(v * 10) / 10).toFixed(1);
 
@@ -38,7 +32,6 @@ export const STORIES = {
     scenario: 'heat-2019',
     metric: 'heatIndex',
     unit: '°F',
-    domain: [72, 108],
     window: { from: '2019-07-19T00:00', hours: 72 },
     heroHour: '2019-07-20T20:00',
     hero: {
@@ -50,15 +43,15 @@ export const STORIES = {
     timeline: {
       kicker: '72 hours',
       title: 'Three days, and nights that never cooled off',
-      dek: 'Play or drag through the heat wave hour by hour. Each neighborhood rises and reddens with how hot it felt.',
+      dek: 'Play or drag through the heat wave hour by hour. Each neighborhood rises with how dangerous the heat is there: how hot it feels, weighed by who lives there.',
     },
     beats: [
-      { at: '2019-07-19T15:00', write: (c) => `${lead(c.key)} It already feels like ${r0(c.value)}°F in the hottest neighborhoods.` },
-      { at: '2019-07-19T23:00', write: (c) => `${lead(c.key, { day: false })} The sun has been down for hours, and it still feels like ${r0(c.value)}°F.` },
-      { at: '2019-07-20T06:00', write: (c) => `${lead(c.key)} Sunrise, and it already feels like ${r0(c.value)}°F.` },
-      { at: '2019-07-20T16:00', write: (c) => `${lead(c.key)} ${r0(c.value)}°F. The city has declared a heat emergency.` },
-      { at: '2019-07-21T05:00', write: (c) => `${storyTime(c.key)}, the coolest hour of the night. The air is still ${r0(c.temp)}°F.` },
-      { at: '2019-07-21T16:00', write: (c) => `${lead(c.key)} A second straight day near ${r0(c.value)}°F.` },
+      { at: '2019-07-19T15:00', write: (c) => `The thermometer says ${r0(c.temp)}°F, but the humidity makes the hottest blocks feel ${r0(c.value - c.temp)} degrees hotter.` },
+      { at: '2019-07-19T23:00', write: (c) => `The sun has been down for hours, and it still feels like ${r0(c.value)}°F.` },
+      { at: '2019-07-20T06:00', write: (c) => `Sunrise, and it already feels like ${r0(c.value)}°F.` },
+      { at: '2019-07-20T16:00', write: () => 'The city has declared a heat emergency and opened hundreds of cooling centers.' },
+      { at: '2019-07-21T05:00', write: (c) => `The coolest hour of the night, and the air is still ${r0(c.temp)}°F.` },
+      { at: '2019-07-21T16:00', write: (c) => `A second straight day near ${r0(c.value)}°F.` },
     ],
     exposed: {
       kicker: "Who's exposed",
@@ -77,7 +70,6 @@ export const STORIES = {
     scenario: 'sandy',
     metric: 'water',
     unit: ' ft',
-    domain: [0, 10],
     window: { from: '2012-10-29T06:00', hours: 16 },
     heroHour: '2012-10-29T18:00',
     hero: {
@@ -92,12 +84,16 @@ export const STORIES = {
       dek: 'Play or drag to raise the harbor to its measured level at each hour. Land below the waterline turns to sea.',
     },
     beats: [
-      { at: '2012-10-29T08:00', write: (c) => `${lead(c.key)} Sandy is still offshore. The water at the Battery is already ${r1(c.value)} ft above a normal high tide.` },
+      {
+        at: '2012-10-29T08:00',
+        write: (c) =>
+          `Sandy is still offshore, but its winds are already piling water into the harbor${c.value > c.minor ? `, past the ${r1(c.minor)} ft where minor flooding starts` : `. Minor flooding starts at ${r1(c.minor)} ft`}.`,
+      },
       {
         at: '2012-10-29T17:00',
-        write: (c) => `${lead(c.key)} ${r1(c.value)} ft and rising${c.value > c.minor ? `, past the ${r1(c.minor)} ft where minor flooding starts` : `. Minor flooding starts at ${r1(c.minor)} ft`}.`,
+        write: (c) => (c.value > c.minor ? `Still rising, now past the ${r1(c.minor)} ft where minor flooding starts.` : `Still rising toward the ${r1(c.minor)} ft where minor flooding starts.`),
       },
-      { at: '2012-10-29T21:00', write: (c) => `${lead(c.key)} ${r1(c.value)} ft. Seawater pours into subway tunnels, the Battery Tunnel and the Rockaways.` },
+      { at: '2012-10-29T21:00', write: () => 'Seawater pours into subway tunnels, the Battery Tunnel and the Rockaways.' },
       { at: 'slr', write: (c) => `Now run the same storm on the seas projected for the ${c.slr.label}: ${c.slr.inches} inches higher. More of the city goes under.` },
     ],
     exposed: {
@@ -117,7 +113,6 @@ export const STORIES = {
     scenario: 'smoke-2023',
     metric: 'aqi',
     unit: '',
-    domain: [50, 420],
     window: { from: '2023-06-07T00:00', hours: 48 },
     heroHour: '2023-06-07T19:00',
     hero: {
@@ -129,12 +124,12 @@ export const STORIES = {
     timeline: {
       kicker: 'Two days',
       title: 'The smoke rolled in, and stayed',
-      dek: "Play or drag through June 7 and 8. The haze thickens with each hour's Air Quality Index.",
+      dek: "Play or drag through June 7 and 8. The haze thickens with each hour's Air Quality Index, and neighborhoods rise where the air is worse than the city's average.",
     },
     beats: [
-      { at: '2023-06-07T09:00', write: (c) => `${lead(c.key)} AQI ${r0(c.value)}: "${aqiCategory(c.value)}." Schools cancel outdoor activities.` },
-      { at: '2023-06-07T17:00', write: (c) => `${lead(c.key)} AQI ${r0(c.value)}: "${aqiCategory(c.value)}." For a few hours New York has the worst air of any major city on Earth.` },
-      { at: '2023-06-08T09:00', write: (c) => `${lead(c.key)} Still "${aqiCategory(c.value)}," with an AQI of ${r0(c.value)}.` },
+      { at: '2023-06-07T09:00', write: (c) => `The air is "${aqiCategory(c.value)}," and schools cancel outdoor activities.` },
+      { at: '2023-06-07T17:00', write: (c) => `"${aqiCategory(c.value)}." For a few hours New York has the worst air of any major city on Earth.` },
+      { at: '2023-06-08T09:00', write: (c) => `A day later the air is still "${aqiCategory(c.value)}."` },
     ],
     exposed: {
       kicker: "Who's exposed",
@@ -153,7 +148,6 @@ export const STORIES = {
     scenario: 'isaias',
     metric: 'gust',
     unit: ' mph',
-    domain: [20, 75],
     window: { from: '2020-08-04T04:00', hours: 24 },
     heroHour: '2020-08-04T19:00',
     hero: {
@@ -165,13 +159,13 @@ export const STORIES = {
     timeline: {
       kicker: 'One afternoon',
       title: 'The wind built for six hours, then let go',
-      dek: 'Play or drag through the day. Each neighborhood rises with its strongest gust.',
+      dek: 'Play or drag through the day. Each neighborhood rises where the gusts are stronger than the city average.',
     },
     beats: [
-      { at: '2020-08-04T08:00', write: (c) => `${lead(c.key)} Gusts of ${r0(c.value)} mph as Isaias races up the coast toward the city.` },
-      { at: '2020-08-04T12:00', write: (c) => `${lead(c.key)} ${r0(c.value)} mph. Trees and power lines start coming down.` },
-      { at: '2020-08-04T14:00', write: (c) => `${lead(c.key)} ${r0(c.value)} mph at the shore. More than 250,000 Con Edison customers lose power.` },
-      { at: '2020-08-04T20:00', write: (c) => `${lead(c.key)} Calm again, but some blocks wait days for the lights to come back.` },
+      { at: '2020-08-04T08:00', write: () => 'Isaias races up the coast toward the city, and a Tropical Storm Warning is in effect.' },
+      { at: '2020-08-04T12:00', write: () => 'Trees and power lines start coming down.' },
+      { at: '2020-08-04T14:00', write: () => 'The strongest gusts hit the shore. More than 250,000 Con Edison customers lose power.' },
+      { at: '2020-08-04T20:00', write: () => 'Calm again, but some blocks wait days for the lights to come back.' },
     ],
     exposed: {
       kicker: "Who's exposed",
@@ -263,6 +257,7 @@ export function buildStory(hazard, { heatDrivers = null } = {}) {
 
   const heroIndex = Math.max(0, series.time.indexOf(story.heroHour));
   return {
+    city: cityValues(hazard, values),
     ...story,
     scenarioMeta: scenario,
     time: series.time,
@@ -281,10 +276,85 @@ export function buildStory(hazard, { heatDrivers = null } = {}) {
 }
 
 /**
- * Spread the 39 modeled neighborhoods across every NTA with inverse-distance
- * weights, computed once. Returns a function (hourIndex) => Float32Array of NTA values.
+ * Heat hazard on the model's 0–4 scale, but continuous so the 3D city eases
+ * instead of jumping: 80°F feels-like is 1, 90 is 2, 100 is 3, 105 is 4 (as heatHazard).
  */
-export function ntaBlender(ntas, story, { nearest = 5, power = 2 } = {}) {
+export function heatHazardSmooth(heatIndex) {
+  const knots = [
+    [70, 0],
+    [80, 1],
+    [90, 2],
+    [100, 3],
+    [105, 4],
+  ];
+  if (heatIndex <= knots[0][0]) return 0;
+  for (let i = 1; i < knots.length; i++) {
+    const [x1, y1] = knots[i];
+    if (heatIndex <= x1) {
+      const [x0, y0] = knots[i - 1];
+      return y0 + ((heatIndex - x0) / (x1 - x0)) * (y1 - y0);
+    }
+  }
+  return 4;
+}
+
+/**
+ * What the 3D city shows in the timeline, per neighborhood per hour, as 0–1
+ * (0.25 = Low's near-neutral color). Raw values from 39 points barely differ
+ * across the city, so the city shows differences instead:
+ *   heat:      heat danger = how hot it feels × the neighborhood's vulnerability
+ *              (the risk model's Heat Vulnerability Index factor), on the 0–4 scale
+ *   air, wind: the difference from the citywide average at that hour; at or below
+ *              average stays in the quiet end, above it climbs the ramp
+ * Floods show water on real terrain instead, so they have none.
+ */
+export function cityValues(hazard, values) {
+  if (hazard === 'floods') return null;
+  const hours = values[0].length;
+  if (hazard === 'heat') {
+    const danger = values.map((row, i) => row.map((hi) => Math.min(4, heatHazardSmooth(hi) * vulnerabilityFactor(AREAS[i].hvi))));
+    return {
+      values: danger.map((row) => row.map((d) => d / 4)),
+      legend: { low: 'Less danger', high: 'More danger', text: 'Height and color: heat danger, how hot it feels times how vulnerable each neighborhood is (NYC Heat Vulnerability Index).' },
+    };
+  }
+  const mean = Array.from({ length: hours }, (_, k) => values.reduce((sum, row) => sum + row[k], 0) / values.length);
+  const diff = values.map((row) => row.map((v, k) => v - mean[k]));
+  // above and below average scale separately, so the worst place always reaches the top of the ramp
+  const up = Math.max(1e-6, ...diff.flat());
+  const down = Math.max(1e-6, ...diff.flat().map((d) => -d));
+  const what = hazard === 'air' ? 'the air is' : 'the gusts are';
+  return {
+    values: diff.map((row) => row.map((d) => (d >= 0 ? 0.25 + 0.75 * (d / up) : 0.25 * (1 + d / down)))),
+    legend: { low: 'Better than average', high: 'Worse than average', text: `Height and color: how much worse ${what} in each neighborhood than the city average at the same hour.` },
+  };
+}
+
+/** A beat stays on screen until the clock is more than this many hours past it. */
+export const BEAT_HOURS = 1;
+
+/**
+ * Which beat's text to show at a story hour (−1 for none): the latest beat the
+ * clock has reached, but only while the clock is within BEAT_HOURS of it, so the
+ * text never describes a different hour from the clock above it. Uses the same
+ * rounded hour as the clock. The sea level beat shows while the sea is rising.
+ */
+export function beatAt(story, hourF, slr = 0) {
+  const hour = Math.round(hourF); // the hour the clock shows
+  let beat = -1;
+  story.beats.forEach((b, i) => {
+    if (b.slr ? slr > 0.05 : hour >= b.index) beat = i;
+  });
+  if (beat < 0 || story.beats[beat].slr) return beat;
+  return hour - story.beats[beat].index <= BEAT_HOURS ? beat : -1;
+}
+
+/**
+ * Spread the 39 modeled neighborhoods across every NTA with inverse-distance
+ * weights, computed once. Returns a function (hourIndex) => Float32Array of NTA
+ * values; by default the 3D city's 0–1 values (cityValues).
+ */
+export function ntaBlender(ntas, story, { nearest = 5, power = 2, values = story.city.values } = {}) {
   const weights = ntas.map((f) => {
     const ranked = AREAS.map((a, i) => ({ i, d: kmBetween(f.properties.cx, f.properties.cy, a.lon, a.lat) }))
       .sort((x, y) => x.d - y.d)
@@ -298,7 +368,7 @@ export function ntaBlender(ntas, story, { nearest = 5, power = 2 } = {}) {
     const out = new Float32Array(ntas.length);
     weights.forEach((ws, n) => {
       let v = 0;
-      for (const { i, w } of ws) v += story.values[i][k] * w;
+      for (const { i, w } of ws) v += values[i][k] * w;
       out[n] = v;
     });
     return out;

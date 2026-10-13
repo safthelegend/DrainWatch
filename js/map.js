@@ -6,7 +6,7 @@
 
 import { TIDE_STATIONS } from './config.js';
 import { FEMA_FLOOD_ZONE_LAYER, FEMA_NFHL } from './data.js';
-import { esc } from './ui.js';
+import { esc, tideLevelText } from './ui.js';
 
 // Free, keyless basemaps. Both themes use the same tiles: dark mode is a CSS
 // filter on the tile pane (css/style.css), so switching themes never refetches
@@ -72,9 +72,21 @@ export function createMap(el, { onClick }) {
   map.on('click focus', () => map.scrollWheelZoom.enable());
   map.on('mouseout', () => map.scrollWheelZoom.disable());
   map.on('click', (e) => onPick(e.latlng.lat, e.latlng.lng));
-  // the elevation cells are ~110 m, too coarse to draw at street level
-  map.on('zoomend', () => el.classList.toggle('street-zoom', map.getZoom() > 15));
+  const zoomed = () => {
+    for (const [cls, on] of Object.entries(zoomClasses(map.getZoom()))) el.classList.toggle(cls, on);
+  };
+  map.on('zoomend', zoomed);
+  zoomed();
   return map;
+}
+
+/**
+ * Classes for the map box by zoom level:
+ *   zoom-close   (14+)  neighborhood fills go pale so street names and the route stay readable
+ *   street-zoom  (16+)  the ~110 m flooded-land cells are too coarse to draw
+ */
+export function zoomClasses(zoom) {
+  return { 'zoom-close': zoom >= 14, 'street-zoom': zoom > 15 };
 }
 
 export async function loadNtas() {
@@ -108,6 +120,9 @@ export function paintNtas(levels, tooltip, raised = new Set()) {
     layer.unbindTooltip();
     const text = tooltip(f, lvl);
     if (text) layer.bindTooltip(text, { sticky: true, direction: 'top', offset: [0, -6] });
+    // Leaflet makes a shape with a tooltip a Tab stop; ~190 unnamed stops would bury the
+    // address search, and the Neighborhoods table already lists every rated place
+    layer.getElement()?.setAttribute('tabindex', '-1');
   }
 }
 
@@ -187,9 +202,9 @@ export function drawStations(tides, popupFor) {
   layers.stations.clearLayers();
   for (const [key, s] of Object.entries(TIDE_STATIONS)) {
     const tide = tides ? tides[key] : null;
-    const text = tide && tide.latest ? `${tide.latest.v.toFixed(1)} ft` : s.name;
+    const reading = tide && tide.latest ? `<small>${tideLevelText(tide.latest.v)}</small>` : '';
     L.marker([s.lat, s.lon], {
-      icon: L.divIcon({ className: '', html: `<span class="gauge-mark">${text}</span>`, iconSize: null }),
+      icon: L.divIcon({ className: '', html: `<span class="gauge-mark"><b>${esc(s.name)}</b>${reading}</span>`, iconSize: null }),
       title: `${s.name} tide gauge`,
     })
       .bindPopup(popupFor(key, s, tide))

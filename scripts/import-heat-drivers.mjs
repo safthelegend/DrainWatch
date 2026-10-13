@@ -9,7 +9,8 @@
 //      For each, choose the neighborhood geography, the latest year, and download the CSV.
 //   2. node scripts/import-heat-drivers.mjs --tree tree-canopy.csv --ac air-conditioning.csv
 //
-// Writes data/heat-drivers.json. The page loads it if it exists; without it the
+// Writes data/heat-drivers.json. Commit it and set HEAT_DRIVERS_URL in js/config.js to
+// 'data/heat-drivers.json' so the page loads it; without it the
 // annotations show the Heat Vulnerability Index, peak feels-like and overnight low.
 //
 // The CSV reader is deliberately forgiving: it finds the geography column (NTA
@@ -111,5 +112,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     new URL('../data/heat-drivers.json', import.meta.url),
     JSON.stringify({ source: 'NYC Environment & Health Data Portal', files: sources, generated: new Date().toISOString().slice(0, 10), byArea }, null, 1),
   );
-  console.log('wrote data/heat-drivers.json');
+  console.log("wrote data/heat-drivers.json; now set HEAT_DRIVERS_URL = 'data/heat-drivers.json' in js/config.js");
 }

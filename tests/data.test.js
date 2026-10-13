@@ -10,6 +10,7 @@ import {
   fetchTides,
   fetchWeather,
   hourIndex,
+  isExactAddress,
   nyHourKey,
   parseAlerts,
   parseEvacZone,
@@ -150,18 +151,32 @@ test('alerts outside the five boroughs are dropped', () => {
 });
 
 test('evacuation zones parse to a zone number, or none outside every zone', () => {
-  assert.deepEqual(parseEvacZone([{ hurricane_: '3' }], 'hurricane_'), { zone: '3' });
-  assert.deepEqual(parseEvacZone([{ zone: ' 1 ' }], 'zone'), { zone: '1' });
-  assert.deepEqual(parseEvacZone([], 'zone'), { zone: null });
-  assert.deepEqual(parseEvacZone([{ zone: 'X' }], 'zone'), { zone: null });
-  assert.throws(() => parseEvacZone([{ other: '2' }], 'zone'));
-  assert.throws(() => parseEvacZone({ error: true }, 'zone'));
+  assert.deepEqual(parseEvacZone([{ hurricane_: '1' }]), { zone: '1' }, 'the live answer for 160 Van Brunt St');
+  assert.deepEqual(parseEvacZone([{ hurricane_: ' 3 ' }]), { zone: '3' });
+  assert.deepEqual(parseEvacZone([]), { zone: null });
+  assert.deepEqual(parseEvacZone([{ hurricane_: 'X' }]), { zone: null });
+  assert.throws(() => parseEvacZone([{ other: '2' }]));
+  assert.throws(() => parseEvacZone({ error: true }));
 });
 
-test('the evacuation zone lookup keeps the first dataset and field that answer', async () => {
-  const calls = fakeFetch({ 'uihr-hn7s.json?%24select=zone&': [{ zone: '4' }], 'epne-qv9x.json?%24select=hurricane_evacuation_zone&': [{ hurricane_evacuation_zone: '2' }] });
-  assert.deepEqual(await fetchEvacZone(40.68, -74.01), { zone: '2' });
-  assert.ok(calls.every((u) => u.includes('intersects') && u.includes('POINT')));
+test('the evacuation zone lookup makes exactly one request, to the pinned dataset and field', async () => {
+  const calls = fakeFetch({ 'epne-qv9x.json?%24select=hurricane_&': [{ hurricane_: '1' }] });
+  assert.deepEqual(await fetchEvacZone(40.6802, -74.0122), { zone: '1' });
+  assert.equal(calls.length, 1);
+  assert.match(decodeURIComponent(calls[0].replace(/\+/g, ' ')), /\$where=intersects\(the_geom, 'POINT \(-74\.012200 40\.680200\)'\)/);
   fakeFetch({});
   await assert.rejects(fetchEvacZone(40.68, -74.01));
+});
+
+test('an exact address match is checked right away; anything looser gets a pick list', () => {
+  const label = '160 Van Brunt Street, Brooklyn, NY, USA';
+  assert.ok(isExactAddress('160 Van Brunt St', label, 'Brooklyn'));
+  assert.ok(isExactAddress('160 van brunt street, brooklyn', label, 'Brooklyn'));
+  assert.ok(isExactAddress('160 Van Brunt St., Brooklyn, NY 11231', label, 'Brooklyn'));
+  assert.ok(isExactAddress('160 Van Brunt St, BK', label, 'Brooklyn'));
+  assert.ok(!isExactAddress('160 Van Brunt', label, 'Brooklyn'), 'a missing street type is not exact');
+  assert.ok(!isExactAddress('16 Van Brunt St', label, 'Brooklyn'));
+  assert.ok(!isExactAddress('160 Van Brunt St, Queens', label, 'Brooklyn'), 'the wrong borough is not exact');
+  assert.ok(!isExactAddress('Van Brunt St', 'Van Brunt Street, Brooklyn, NY, USA', 'Brooklyn'), 'no house number, no shortcut');
+  assert.ok(isExactAddress('1 W 72nd St', '1 West 72 Street, Manhattan, NY, USA', 'Manhattan'));
 });

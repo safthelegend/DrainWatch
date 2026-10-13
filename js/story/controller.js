@@ -8,7 +8,7 @@
 //   • stills: pre-rendered images when WebGL is unavailable or the device is low-power
 //   • reduced motion: no camera flights or drift; each step cross-fades instead
 
-import { buildStory, ntaBlender, storyTime, waterNavdMeters } from './stories.js';
+import { beatAt, buildStory, ntaBlender, storyTime, waterNavdMeters } from './stories.js';
 import { clamp01, lerpPose, poseAt, stepAt, stepPath } from './camera.js';
 import { nyLocalToUtc, solarPosition } from './sun.js';
 import { esc } from '../ui.js';
@@ -18,17 +18,18 @@ const mobileQuery = window.matchMedia('(max-width: 860px)');
 const reducedQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 // Camera keyframes (center lon/lat · distance km · compass bearing faced · tilt from straight down)
+// framed so all five boroughs fit beside the text, Staten Island and the Rockaways included
 const CITY = {
-  hero: { lon: -73.94, lat: 40.715, dist: 66, bearing: 28, tilt: 56 },
-  start: { lon: -73.94, lat: 40.71, dist: 66, bearing: 29, tilt: 46 },
-  end: { lon: -73.93, lat: 40.73, dist: 56, bearing: 40, tilt: 50 },
+  hero: { lon: -73.95, lat: 40.69, dist: 80, bearing: 24, tilt: 54 },
+  start: { lon: -73.97, lat: 40.67, dist: 84, bearing: 22, tilt: 44 },
+  end: { lon: -73.96, lat: 40.68, dist: 76, bearing: 30, tilt: 48 },
   stepDist: 30,
   stepTilt: 47,
 };
 const HARBOR = {
   hero: { lon: -73.88, lat: 40.65, dist: 66, bearing: 58, tilt: 54 },
-  start: { lon: -73.95, lat: 40.65, dist: 72, bearing: 10, tilt: 34 },
-  end: { lon: -73.95, lat: 40.64, dist: 62, bearing: 20, tilt: 40 },
+  start: { lon: -73.98, lat: 40.655, dist: 82, bearing: 10, tilt: 34 },
+  end: { lon: -73.98, lat: 40.65, dist: 74, bearing: 18, tilt: 40 },
   stepDist: 32,
   stepTilt: 40,
 };
@@ -73,9 +74,18 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     $('timeline-title').textContent = story.timeline.title;
     $('timeline-dek').textContent = story.timeline.dek;
     $('readout-unit').textContent = story.unit.trim() === 'ft' ? ' ft' : story.unit;
-    $('beats').innerHTML = story.beats.map((b, i) => `<li class="beat" data-i="${i}">${esc(b.text)}</li>`).join('');
+    // the clock shows the time on screen; screen readers get it with each beat instead
+    $('beats').innerHTML = story.beats
+      .map((b, i) => `<li class="beat" data-i="${i}"><span class="sr-only">${esc(b.slr ? `With ${story.slr.label} seas` : storyTime(story.time[b.index]))}: </span>${esc(b.text)}</li>`)
+      .join('');
     $('clock-time').textContent = storyTime(story.time[0]);
     $('readout-num').textContent = story.hazard === 'floods' ? story.citywide[0].toFixed(1) : Math.round(story.citywide[0]);
+    // what the city's height and color mean in this story
+    const legend = story.city ? story.city.legend : { low: 'Shallow', high: 'Deep', text: 'Color: land under water, shaded by how deep it is (USGS elevation).' };
+    $('city-legend').dataset.kind = story.city ? 'city' : 'water';
+    $('city-legend-low').textContent = legend.low;
+    $('city-legend-high').textContent = legend.high;
+    $('city-legend-text').textContent = legend.text;
     $('timeline-note').textContent =
       story.hazard === 'floods'
         ? 'Water level at the Battery, reconstructed from NOAA records. Elevation: USGS 3DEP. Sea level rise: NPCC 2019.'
@@ -187,7 +197,7 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
       if (b.slr ? slr > 0.05 : hourF >= b.index - 0.001) beat = i;
     });
     if (reduced()) hourF = beat >= 0 && !story.beats[beat].slr ? story.beats[beat].index : beat >= 0 ? story.peak.index : 0;
-    return { hourF, slr, beat };
+    return { hourF, slr, beat, visible: beatAt(story, hourF, slr) };
   }
 
   function citywideAt(hourF, slr) {
@@ -218,14 +228,15 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
       const b = blend(Math.min(story.time.length - 1, k + 1));
       const v = new Float32Array(a.length);
       for (let i = 0; i < a.length; i++) v[i] = lerp(a[i], b[i], frac);
-      stage.setNtaValues(v, story.domain);
+      stage.setNtaValues(v, [0, 1]);
     }
   }
 
   function frameFor(section) {
     const W = window.innerWidth;
     const H = window.innerHeight;
-    if (mobile()) return section === 'hero' ? { x: 0, y: H * 0.4 } : { x: 0, y: -H * 0.24 };
+    // phones: the city sits in the strip above the text sheet (56svh) and the timeline strip
+    if (mobile()) return section === 'hero' ? { x: 0, y: H * 0.4 } : { x: 0, y: -H * 0.27 };
     const side = Math.min(W * 0.36, 540);
     return section === 'hero' ? { x: W * (story && story.hazard === 'floods' ? 0.32 : 0.2), y: H * 0.04 } : { x: side / 2, y: -54 };
   }
@@ -243,14 +254,14 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
   }
 
   // A portrait phone sees a narrow slice of the city, so citywide shots pull far back to fit its width.
-  const adjust = (pose) => (mobile() ? { ...pose, dist: pose.dist * 2.8, tilt: Math.max(1, pose.tilt - 10) } : pose);
+  const adjust = (pose) => (mobile() ? { ...pose, dist: pose.dist * 2.05, tilt: Math.max(1, pose.tilt - 10) } : pose);
   const timelineStart = () => adjust(CAMERAS[story.hazard].start);
   const timelineEnd = () => adjust(mobile() ? { ...CAMERAS[story.hazard].end, bearing: CAMERAS[story.hazard].start.bearing } : CAMERAS[story.hazard].end);
 
   function heroPose(time) {
     const hero = CAMERAS[story.hazard].hero;
     // on phones the city sits small in the bottom third, below the headline and search
-    const base = mobile() ? { ...hero, dist: hero.dist * 3.2, tilt: hero.tilt - 6 } : hero;
+    const base = mobile() ? { ...hero, dist: hero.dist * 2.2, tilt: hero.tilt - 6 } : hero;
     if (reduced()) return base;
     const t = time / 1000;
     return { ...base, bearing: base.bearing + 6 * Math.sin(t / 20), dist: base.dist * (1 - 0.05 * (0.5 + 0.5 * Math.sin(t / 27))) };
@@ -282,7 +293,7 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
       pose = reduced() ? timelineStart() : lerpPose(timelineStart(), timelineEnd(), p.timeline, { ease: (t) => t });
       frame = frameFor('pinned');
       shot = st.beat >= 0 ? `beat-${st.beat}` : 'beat-0';
-      updateBeats(st.beat, hourF, slr);
+      updateBeats(st.visible, hourF, slr);
     } else {
       const exit = reduced() ? 0 : p.hero;
       pose = lerpPose(heroPose(time), timelineStart(), exit);
@@ -358,7 +369,7 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     let lx = pt.x > (left + W) / 2 ? pt.x - w - 56 : pt.x + 56;
     lx = Math.max(left + 16, Math.min(W - w - 16, lx));
     const top = mobile() ? 108 : 70;
-    const bottom = mobile() ? H * 0.5 : H;
+    const bottom = mobile() ? H * 0.44 - 64 : H;
     const ly = Math.max(top, Math.min(bottom - h - 16, pt.y - h - 40));
     el.style.transform = `translate(${Math.round(lx)}px, ${Math.round(ly)}px)`;
     el.style.opacity = String(fade);
@@ -451,8 +462,11 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
   // for a few seconds. With reduced motion it steps instead of sweeping.
   const TIMELINE_MS = 15000;
   const STOP_MS = 3500;
+  const BEAT_HOLD_MS = 3000; // Play pauses on each beat so its text can be read
+  let holdUntil = 0;
   function advance(time) {
     const dt = Math.min(100, time - lastTime);
+    if (time < holdUntil) return;
     if (reduced()) {
       if (time < nextStepAt) return;
       nextStepAt = time + STOP_MS;
@@ -464,12 +478,23 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     }
     const rate = pos < 1 ? 1 / TIMELINE_MS : 1 / (STOP_MS * Math.max(1, story.stops.length));
     const end = steps().at(-1);
-    seek(Math.min(end, pos + dt * rate), { stop: false });
+    let next = Math.min(end, pos + dt * rate);
+    const beat = steps()
+      .slice(0, story.beats.length)
+      .find((p) => p > pos && p <= next);
+    if (beat != null) {
+      next = beat;
+      holdUntil = time + BEAT_HOLD_MS;
+    }
+    seek(next, { stop: false });
     if (pos >= end) setPlaying(false);
   }
 
   function setPlaying(on) {
     playing = on;
+    // starting on a beat (as the story does when it opens): read it before moving on
+    const onBeat = story && steps().slice(0, story.beats.length).some((p) => Math.abs(p - pos) < 0.001);
+    holdUntil = on && onBeat ? performance.now() + BEAT_HOLD_MS : 0;
     if (on && pos >= steps().at(-1) - 0.001) seek(0, { stop: false });
     nextStepAt = 0;
     onPosition?.({ pos, chapter: chapter(), playing, step: currentStep(), steps: steps().length });
