@@ -62,6 +62,7 @@ const SOURCES = {
   evac: { name: 'NYC hurricane evacuation zones', url: 'https://maps.nyc.gov/hurricane/' },
   geosearch: { name: 'NYC GeoSearch', url: 'https://geosearch.planninglabs.nyc/' },
   terrain: { name: 'USGS 3DEP elevation (AWS Terrain Tiles)', url: 'https://registry.opendata.aws/terrain-tiles/' },
+  buildings: { name: 'NYC Building Footprints (3D flood story)', url: 'https://data.cityofnewyork.us/d/5zhs-2jue' },
 };
 
 const COMPARE_PRESETS = [

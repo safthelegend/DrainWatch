@@ -77,8 +77,8 @@ Add `?stills` to see the story's no-WebGL fallback.
 node --test
 ```
 
-77 tests cover the four risk models (against the NWS heat index chart, the EPA AQI breakpoints, and NWS wind and
-flood criteria), every replay, sea level rise, the elevation helpers (higher ground, flooded land), the story's camera
+85 tests cover the four risk models (against the NWS heat index chart, the EPA AQI breakpoints, and NWS wind and
+flood criteria), every replay, sea level rise, the elevation helpers (higher ground, flooded land), the buildings file format and mesh, the story's camera
 paths, beats and 3D values, the sun's position, the data layer (with a fake `fetch`), that the 3D colors match the CSS
 and the risk ramps stay quiet at Low, and that the address search is under 20 Tab presses from the top. GitHub Actions
 runs them on every push.
@@ -109,6 +109,14 @@ node scripts/check-console.mjs http://localhost:8000     # zero console errors, 
   dark ramps run the same way (one hue per hazard, louder toward Severe), checked by a test.
 - **No scroll-jacking.** The page scrolls normally. The 3D story lives in its own overlay with Play, a scrubber,
   step buttons and arrow keys; the camera eases toward each position.
+- **Real buildings, where the water went.** The flood story draws actual buildings from NYC's Building Footprints
+  dataset for Lower Manhattan, the Brooklyn waterfront, Long Island City, Coney Island, the Rockaways and Staten
+  Island's South Shore. Each wall turns flood blue up to the water's depth at that building, so you can see how
+  high Sandy reached. To keep it small, `scripts/bake-buildings.mjs` merges houses into one block per 40 m, drops
+  sheds and skybridges, and simplifies the rest into a compact gzipped binary (`js/story/buildings.js` documents the
+  format). It loads after the terrain, only in the 3D story, and never on phones; ground is exaggerated 8 times and
+  buildings 3 times, so towers don't turn into needles. The repo ships an empty placeholder until the bake is run:
+  `node scripts/bake-buildings.mjs` (needs internet access to NYC Open Data; aim for 1–2 MB).
 - **One canvas, loaded on demand.** Three.js loads the first time the story opens, never on page load. Pixel ratio is
   capped at 2; bloom is off on phones.
 - **Elevation in the browser.** `js/terrain.js` decodes the same USGS heightmap the 3D flood scene uses, for higher
@@ -155,6 +163,7 @@ No API keys needed.
 | [FEMA National Flood Hazard Layer](https://hazards.fema.gov/femaportal/wps/portal/NFHLWMS) | Flood zones |
 | [NYC Health Department geography](https://github.com/nycehs/NYC_geography) (from NYC City Planning) | Neighborhood shapes |
 | [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (USGS 3DEP in the US) | Elevation: the flood story, higher ground, Compare, flooded land |
+| [NYC Building Footprints](https://data.cityofnewyork.us/d/5zhs-2jue) (NYC Office of Technology and Innovation, via NYC Open Data) | Real buildings and roof heights in the 3D flood story |
 
 ## Scripts
 
@@ -164,6 +173,7 @@ All optional; the site runs without them.
 | --- | --- |
 | `scripts/build-geodata.mjs` | Rebuilds `data/nyc-ntas.geojson` and links each NTA to the rated neighborhoods |
 | `scripts/bake-elevation.mjs` | Bakes `data/nyc-elevation.png` from elevation tiles |
+| `scripts/bake-buildings.mjs` | Bakes `data/nyc-buildings.dwb`: real building footprints and roof heights for the places the flood story visits (see below) |
 | `scripts/import-heat-drivers.mjs` | Adds tree canopy and air conditioning to the heat annotations, from CSVs you download from the [NYC Environment & Health Data Portal](https://a816-dohbesp.nyc.gov/IndicatorPublic/) |
 | `scripts/render-stills.mjs` | Renders the story's fallback stills with headless Chromium |
 | `scripts/check-tab-order.mjs` | Counts Tab presses from the top of the page to the address search (must be under 20) |
@@ -188,6 +198,7 @@ js/app.js                  state, live data, routing, dashboard, address checks,
 js/terrain.js              elevation: higher ground, neighborhood elevation, flooded land (pure + a loader)
 js/story/controller.js     story position → camera pose, replay hour and story text; play and step
 js/story/stage.js          the Three.js scene (lazy-loaded)
+js/story/buildings.js      the buildings file format, footprint simplifying and roof triangulation (pure, tested)
 js/story/stories.js        the four stories; every number in the copy comes from data
 js/story/camera.js         camera poses and eased paths            ┐
 js/story/sun.js            solar position                          │ pure,

@@ -81,14 +81,14 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     $('clock-time').textContent = storyTime(story.time[0]);
     $('readout-num').textContent = story.hazard === 'floods' ? story.citywide[0].toFixed(1) : Math.round(story.citywide[0]);
     // what the city's height and color mean in this story
-    const legend = story.city ? story.city.legend : { low: 'Shallow', high: 'Deep', text: 'Color: land under water, shaded by how deep it is (USGS elevation).' };
+    const legend = story.city ? story.city.legend : { low: 'Shallow', high: 'Deep', text: 'Color: land under water, shaded by how deep it is (USGS elevation). Ground heights are exaggerated 8 times; buildings, where shown, 3 times.' };
     $('city-legend').dataset.kind = story.city ? 'city' : 'water';
     $('city-legend-low').textContent = legend.low;
     $('city-legend-high').textContent = legend.high;
     $('city-legend-text').textContent = legend.text;
     $('timeline-note').textContent =
       story.hazard === 'floods'
-        ? 'Water level at the Battery, reconstructed from NOAA records. Elevation: USGS 3DEP. Sea level rise: NPCC 2019.'
+        ? 'Water level at the Battery, reconstructed from NOAA records. Elevation: USGS 3DEP. Buildings: NYC Building Footprints. Sea level rise: NPCC 2019.'
         : 'Neighborhood values modeled from 39 points. Approximate reconstruction from NOAA, NWS and EPA records.';
 
     $('exposed-kicker').textContent = story.exposed.kicker;
@@ -243,12 +243,14 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
 
   function exposedPath() {
     const cam = CAMERAS[story.hazard];
+    // with real buildings on the flood map, fly in low enough to see the water on their walls
+    const close = mode === 'stage' && story.hazard === 'floods' && stage.hasBuildings;
     const poses = story.stops.map((e) => ({
       lon: e.area.lon,
       lat: e.area.lat,
-      dist: cam.stepDist * (mobile() ? 1.3 : 1),
+      dist: cam.stepDist * (close ? 0.4 : 1) * (mobile() ? 1.3 : 1),
       bearing: e.bearing,
-      tilt: cam.stepTilt - (mobile() ? 10 : 0),
+      tilt: cam.stepTilt + (close ? 16 : 0) - (mobile() ? 10 : 0),
     }));
     return stepPath(poses, { start: timelineEnd() });
   }

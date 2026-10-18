@@ -4,7 +4,8 @@
 //   • neighborhoods: NYC's 195 neighborhoods extruded; height and color follow
 //     the story's metric hour by hour (heat index, AQI or wind gusts)
 //   • terrain: the city's real elevation (USGS 3DEP), with a sea that rises to
-//     the measured storm tide; land under water is colored by flood depth
+//     the measured storm tide; land under water is colored by flood depth, and
+//     real buildings (NYC Building Footprints, where baked) show the waterline
 // Lighting follows the replay's real sun position. Everything here is visual:
 // the page states every fact in text as well.
 
@@ -42,15 +43,17 @@ import { project } from './geo.js';
 import { poseToCamera } from './camera.js';
 import { daylight, nyLocalToUtc, solarPosition } from './sun.js';
 import { cellLonLat, decodeElevation, ELEVATION } from './elevation.js';
+import { BUILDINGS, buildingArrays, decodeBuildings, inflate } from './buildings.js';
 import { hexToRgb, mix, NEUTRAL, RAMPS, rampAt, skyAt } from './palette.js';
 
 const TERRAIN_EXAGGERATION = 0.008; // km of height per metre of elevation (×8)
+const BUILDING_EXAGGERATION = 0.003; // km per metre of building height (×3)
 const BASE_HEIGHT = 0.05; // km
 const MAX_EXTRA = 1.9; // km
 
 const srgb = (rgb) => new Color().setRGB(rgb[0], rgb[1], rgb[2], SRGBColorSpace);
 
-export async function createStage(canvas, { theme = 'light', mobile = false, bloom = !mobile } = {}) {
+export async function createStage(canvas, { theme = 'light', mobile = false, bloom = !mobile, buildings = !mobile } = {}) {
   const renderer = new WebGLRenderer({ canvas, antialias: !mobile, alpha: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.5 : 2));
   renderer.outputColorSpace = SRGBColorSpace;
@@ -259,9 +262,41 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
       floodSea = new Mesh(new PlaneGeometry(600, 600), new MeshLambertMaterial({ color: 0x5588aa, transparent: true, opacity: 0.55, depthWrite: false }));
       floodSea.rotation.x = -Math.PI / 2;
       terrain.add(terrainMesh, floodSea);
+      if (buildings) loadBuildings();
       return terrainMesh;
     });
     return terrainLoad;
+  }
+
+  // Buildings arrive after the terrain and never hold it up. The file is
+  // optional (scripts/bake-buildings.mjs makes it): without it the scene stays bare.
+  let buildingLoad = null;
+  let hasBuildings = false;
+  function loadBuildings() {
+    buildingLoad ||= fetch(BUILDINGS.url)
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((buf) => buf && inflate(buf))
+      .then((bytes) => {
+        const list = bytes ? decodeBuildings(bytes) : [];
+        if (!list.length) return null;
+        const a = buildingArrays(list, { groundScale: TERRAIN_EXAGGERATION, heightScale: BUILDING_EXAGGERATION });
+        const geo = new BufferGeometry();
+        geo.setAttribute('position', new BufferAttribute(a.position, 3));
+        geo.setAttribute('normal', new BufferAttribute(a.normal, 3));
+        geo.setAttribute('ground', new BufferAttribute(a.ground, 1));
+        geo.setAttribute('above', new BufferAttribute(a.above, 1));
+        geo.setIndex(new BufferAttribute(a.index, 1));
+        const mesh = new Mesh(geo, buildingMaterial());
+        terrain.add(mesh);
+        hasBuildings = true;
+        state.dirty = true;
+        return mesh;
+      })
+      .catch((err) => {
+        console.info('[DrainWatch] buildings not shown', err);
+        return null;
+      });
+    return buildingLoad;
   }
 
   // Flood shading runs per pixel: each fragment compares its interpolated
@@ -271,6 +306,7 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
     uLand: { value: new Color() },
     uShallow: { value: new Color() },
     uDeep: { value: new Color() },
+    uBuilding: { value: new Color() },
   };
   function floodMaterial() {
     const mat = new MeshLambertMaterial();
@@ -293,6 +329,28 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
     return mat;
   }
 
+  // Buildings stay a quiet neutral; below the water line their walls take the flood color.
+  function buildingMaterial() {
+    const mat = new MeshLambertMaterial();
+    mat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, floodUniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float ground;\nattribute float above;\nvarying float vGround;\nvarying float vAbove;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGround = ground;\nvAbove = above;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uWater;\nuniform vec3 uBuilding;\nuniform vec3 uShallow;\nuniform vec3 uDeep;\nvarying float vGround;\nvarying float vAbove;')
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          float depth = uWater - vGround;
+          float wet = smoothstep(-0.05, 0.05, depth - vAbove);
+          vec3 flood = mix(uShallow, uDeep, clamp(depth / 2.0, 0.0, 1.0));
+          diffuseColor.rgb = mix(uBuilding, flood, wet);`,
+        );
+    };
+    return mat;
+  }
+
   /** Water level in metres (NAVD88): land below it turns to flood-ramp blue by depth. */
   let lastWater = null;
   function setWater(meters) {
@@ -307,6 +365,8 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
     u.uLand.value.copy(srgb(hexToRgb(NEUTRAL[state.theme].land)));
     u.uShallow.value.copy(srgb(hexToRgb(ramp[2])));
     u.uDeep.value.copy(srgb(hexToRgb(state.theme === 'dark' ? ramp[4] : ramp[3])));
+    const neutral = NEUTRAL[state.theme];
+    u.uBuilding.value.copy(srgb(mix(hexToRgb(neutral.land), hexToRgb(state.theme === 'dark' ? neutral.ink : neutral.rule), state.theme === 'dark' ? 0.14 : 0.7)));
     floodSea.position.y = Math.max(0, meters) * TERRAIN_EXAGGERATION + 0.0005;
     floodSea.material.color.copy(srgb(hexToRgb(ramp[2])));
     floodSea.material.opacity = 0.16;
@@ -479,6 +539,10 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
     areaTop,
     render,
     resize: applySize,
+    /** True once real buildings are on the flood map. */
+    get hasBuildings() {
+      return hasBuildings;
+    },
     get ntaFeatures() {
       return ntas ? ntas.map((n) => n.feature) : null;
     },
