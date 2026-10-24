@@ -10,7 +10,7 @@
 //   • stills: pre-rendered images when WebGL is unavailable or the device is low-power
 //   • reduced motion: no camera flights or drift; each step cross-fades instead
 
-import { beatAt, buildStory, ntaBlender, playStep, SLR_SHARE, storySteps, storyTime, waterNavdMeters } from './stories.js';
+import { beatAt, buildStory, ntaBlender, playClock, playStep, SLR_SHARE, storySteps, storyTime, waterNavdMeters } from './stories.js';
 import { clamp01, lerpPose, poseAt, stepAt, stepPath } from './camera.js';
 import { nyLocalToUtc, solarPosition } from './sun.js';
 import { loadTerrain, ntaElevationIndex, ntaShareBelow } from '../terrain.js';
@@ -429,8 +429,12 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     target.hero = 1;
     target.timeline = Math.min(1, pos);
     target.exposed = Math.max(0, pos - 1);
-    onPosition?.({ pos, chapter: chapter(), playing, step: currentStep(), steps: steps().length });
+    report();
   }
+
+  // the player bar shows Play's elapsed time (stories.js playClock), so it moves steadily
+  const bar = () => (story ? playClock(story).toBar(pos) : pos / 2);
+  const report = () => onPosition?.({ pos, bar: bar(), chapter: chapter(), playing, step: currentStep(), steps: steps().length });
 
   function currentStep() {
     const list = steps();
@@ -482,7 +486,7 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
   function setPlaying(on) {
     playing = on;
     nextStepAt = 0;
-    onPosition?.({ pos, chapter: chapter(), playing, step: currentStep(), steps: steps().length });
+    report();
   }
 
   function loop(time) {
@@ -592,6 +596,8 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     open,
     close,
     seek,
+    /** Seek to a point on the player bar (0–1), which measures Play's running time. */
+    seekBar: (f) => seek(story ? playClock(story).toPos(f) : 2 * f),
     next: () => go(1),
     prev: () => go(-1),
     togglePlay: () => setPlaying(!playing),

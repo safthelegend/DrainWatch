@@ -741,9 +741,9 @@ function closeStory() {
   lastFocus?.focus?.();
 }
 
-function onStoryPosition({ pos, chapter, playing }) {
-  $('story-range').value = Math.round(pos * 1000);
-  $('story-range').style.setProperty('--fill', `${(pos / 2) * 100}%`);
+function onStoryPosition({ bar, chapter, playing }) {
+  $('story-range').value = Math.round(bar * 2000);
+  $('story-range').style.setProperty('--fill', `${bar * 100}%`);
   $('story-side').dataset.chapter = chapter;
   for (const b of document.querySelectorAll('.chapter-tabs [data-chapter]')) {
     const on = b.dataset.chapter === chapter;
@@ -922,7 +922,7 @@ $('story-close').addEventListener('click', closeStory);
 $('story-prev').addEventListener('click', () => story.prev());
 $('story-next').addEventListener('click', () => story.next());
 $('story-play').addEventListener('click', () => story.togglePlay());
-$('story-range').addEventListener('input', (e) => story.seek(+e.target.value / 1000));
+$('story-range').addEventListener('input', (e) => story.seekBar(+e.target.value / 2000));
 for (const b of document.querySelectorAll('.chapter-tabs [data-chapter]')) {
   b.addEventListener('click', () => {
     const steps = story.stepPositions;

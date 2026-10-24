@@ -422,13 +422,52 @@ export function playRate(story, pos) {
   return rate;
 }
 
-/** Advance Play by dtMs. Past the end it wraps back to the start: { pos, looped }. */
+/**
+ * The player bar measures Play's running time, not story position, so it moves at
+ * one steady speed while the story itself slows through each beat. Returns
+ * { toBar(pos) → 0–1, toPos(bar) → 0–2, seconds } for a story, built once.
+ */
+const playClocks = new WeakMap();
+export function playClock(story) {
+  let clock = playClocks.get(story);
+  if (clock) return clock;
+  const N = 8000;
+  // elapsed seconds at each of N + 1 evenly spaced positions from 0 to 2
+  const t = new Float64Array(N + 1);
+  for (let i = 1; i <= N; i++) {
+    const a = (2 * (i - 1)) / N;
+    const b = (2 * i) / N;
+    t[i] = t[i - 1] + ((b - a) / 2) * (1 / playRate(story, a) + 1 / playRate(story, b));
+  }
+  const seconds = t[N];
+  const toBar = (pos) => {
+    const x = (Math.max(0, Math.min(2, pos)) / 2) * N;
+    const i = Math.min(N - 1, Math.floor(x));
+    return (t[i] + (t[i + 1] - t[i]) * (x - i)) / seconds;
+  };
+  const toPos = (bar) => {
+    const target = Math.max(0, Math.min(1, bar)) * seconds;
+    let lo = 0;
+    let hi = N;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (t[mid] <= target) lo = mid;
+      else hi = mid;
+    }
+    const span = t[hi] - t[lo];
+    return (2 * (lo + (span > 0 ? (target - t[lo]) / span : 0))) / N;
+  };
+  clock = { toBar, toPos, seconds };
+  playClocks.set(story, clock);
+  return clock;
+}
+
+/** Advance Play by dtMs, at the speed playRate gives each position. Past the end it wraps back to the start: { pos, looped }. */
 export function playStep(story, pos, dtMs) {
-  let p = pos;
-  // a few sub-steps so a long frame can't skip a beat's slow stretch
-  const parts = Math.max(1, Math.ceil(dtMs / 20));
-  for (let i = 0; i < parts; i++) p += (playRate(story, p) * dtMs) / parts / 1000;
-  return p >= 2 ? { pos: 0, looped: true } : { pos: p, looped: false };
+  // step along Play's clock rather than the position, so a long frame can't skip a beat's slow stretch
+  const clock = playClock(story);
+  const bar = clock.toBar(pos) + dtMs / 1000 / clock.seconds;
+  return bar >= 1 ? { pos: 0, looped: true } : { pos: clock.toPos(bar), looped: false };
 }
 
 /**
