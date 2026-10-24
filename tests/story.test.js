@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { centroid, idw, inGeometry, kmBetween, project, unproject } from '../js/story/geo.js';
 import { daylight, nyLocalToUtc, solarPosition } from '../js/story/sun.js';
 import { lerpPose, poseAt, poseToCamera, stepAt, stepPath, turn } from '../js/story/camera.js';
-import { beatAt, buildStory, heatHazardSmooth, ntaBlender, storyTime, STORIES, waterNavdMeters } from '../js/story/stories.js';
+import { beatAt, buildStory, heatHazardSmooth, ntaBlender, playRate, playStep, SLR_SHARE, storySteps, storyTime, STORIES, waterNavdMeters } from '../js/story/stories.js';
 import { extract, parseCsv } from '../scripts/import-heat-drivers.mjs';
 import { AREAS } from '../js/config.js';
 
@@ -84,6 +84,15 @@ test('camera paths interpolate, arc and hold', () => {
   const held = poseAt(path, 0.45);
   close(held.lon, a.lon, 1e-9, 'step 1 holds after its flight');
   assert.deepEqual(stepAt(0.75, 2), { index: 1, local: 0.5 });
+
+  // with drift the camera keeps moving while it stays on a neighborhood, at a steady pace
+  const drifting = stepPath([a, b], { start: b, drift: { bearing: 12, zoom: 0.9 } });
+  const p0 = poseAt(drifting, 0.25);
+  const p1 = poseAt(drifting, 0.375);
+  const p2 = poseAt(drifting, 0.5);
+  close(p0.lon, a.lon, 1e-9, 'still over the same neighborhood');
+  close(turn(p0.bearing, p1.bearing), turn(p1.bearing, p2.bearing), 1e-6, 'drifts at a steady rate');
+  assert.ok(turn(p0.bearing, p2.bearing) > 5, 'and actually moves');
 });
 
 test('every story builds, and its copy is computed from the replay', () => {
@@ -223,5 +232,56 @@ test('the 3D city shows differences between neighborhoods, not one uniform slab'
     assert.ok(s.city.values.flat().every((v) => v >= 0 && v <= 1));
     assert.match(s.city.legend.text, /Height and color/);
   }
-  assert.equal(buildStory('floods').city, null, 'floods show water on terrain instead');
+  // floods: blocks like the others, from the share of each neighborhood's land under water (computed from elevation)
+  const floods = buildStory('floods');
+  assert.equal(floods.city.fromTerrain, true);
+  assert.deepEqual(floods.city.domain, [0, 0.5]);
+  assert.match(floods.city.legend.text, /land is under water/);
+});
+
+test('Play never stops: it slows through each beat, moves smoothly and loops', () => {
+  for (const hazard of Object.keys(STORIES)) {
+    const s = buildStory(hazard);
+    // speed is always positive and has no jumps
+    let prev = playRate(s, 0);
+    for (let p = 0; p < 2; p += 0.0005) {
+      const r = playRate(s, p);
+      assert.ok(r > 0, `${hazard}: moving at ${p.toFixed(4)}`);
+      if (Math.abs(p - 1) > 0.001) assert.ok(Math.abs(r - prev) < 0.01, `${hazard}: no sudden change in speed at ${p.toFixed(4)}`);
+      prev = r;
+    }
+    // slower where a beat is on screen than between beats
+    const steps = storySteps(s);
+    const timelineBeats = s.beats.map((b, i) => ({ b, at: steps[i] })).filter(({ b }) => !b.slr);
+    for (const { at } of timelineBeats) assert.ok(playRate(s, at) < playRate(s, 0) / 2, `${hazard}: slows for the beat at ${at.toFixed(3)}`);
+    // a beat stays on screen for a few seconds of continuous play
+    for (const { b } of timelineBeats) {
+      let pos = 0;
+      let shownMs = 0;
+      for (let t = 0; t < 120000 && pos < 1; t += 16) {
+        const hourF = hazard === 'floods' ? Math.min(1, pos / (1 - SLR_SHARE)) * s.peak.index : pos * (s.time.length - 1);
+        if (beatAt(s, hourF) === s.beats.indexOf(b)) shownMs += 16;
+        pos = playStep(s, pos, 16).pos;
+      }
+      assert.ok(shownMs > 2000, `${hazard}: beat "${b.text.slice(0, 30)}…" readable for ${shownMs} ms`);
+    }
+    // one loop in a sensible time, then back to the start
+    let pos = 0;
+    let ms = 0;
+    let looped = false;
+    while (!looped && ms < 120000) {
+      ({ pos, looped } = playStep(s, pos, 16));
+      ms += 16;
+    }
+    assert.ok(looped && pos === 0, `${hazard}: loops back to the start`);
+    assert.ok(ms > 20000 && ms < 60000, `${hazard}: one loop takes ${(ms / 1000).toFixed(1)} s`);
+  }
+});
+
+test('story steps: one per beat, then one per neighborhood', () => {
+  const s = buildStory('heat');
+  const steps = storySteps(s);
+  assert.equal(steps.length, s.beats.length + s.stops.length);
+  assert.ok(steps.every((p, i) => i === 0 || p > steps[i - 1]), 'in order');
+  assert.ok(steps.slice(s.beats.length).every((p) => p > 1 && p < 2), 'stops in "who\'s exposed"');
 });

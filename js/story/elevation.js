@@ -11,8 +11,3 @@ export const ELEVATION = {
 export function decodeElevation(r, g) {
   return (r * 256 + g) / 100 - 100;
 }
-
-/** lon/lat of the centre of grid cell (row, col). */
-export function cellLonLat(row, col, size = ELEVATION.size, bbox = ELEVATION.bbox) {
-  return [bbox.west + ((col + 0.5) / size) * (bbox.east - bbox.west), bbox.north - ((row + 0.5) / size) * (bbox.north - bbox.south)];
-}

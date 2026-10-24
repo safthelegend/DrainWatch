@@ -1,12 +1,10 @@
-// The 3D city behind the story. Loaded lazily, after first paint.
+// The 3D city behind the story. Loaded lazily, the first time the story opens.
 //
-// Two scenes share one canvas and one camera:
-//   • neighborhoods: NYC's 195 neighborhoods extruded; height and color follow
-//     the story's metric hour by hour (heat index, AQI or wind gusts)
-//   • terrain: the city's real elevation (USGS 3DEP), with a sea that rises to
-//     the measured storm tide; land under water is colored by flood depth
-// Lighting follows the replay's real sun position. Everything here is visual:
-// the page states every fact in text as well.
+// NYC's 195 neighborhoods, extruded; height and color follow the story's values
+// hour by hour (heat danger, air and wind compared with the city average, or the
+// share of land under water), the same way for every hazard. Lighting follows the
+// replay's real sun position. Everything here is visual: the page states every
+// fact in text as well.
 
 import {
   AmbientLight,
@@ -41,10 +39,8 @@ import {
 import { project } from './geo.js';
 import { poseToCamera } from './camera.js';
 import { daylight, nyLocalToUtc, solarPosition } from './sun.js';
-import { cellLonLat, decodeElevation, ELEVATION } from './elevation.js';
 import { hexToRgb, mix, NEUTRAL, RAMPS, rampAt, skyAt } from './palette.js';
 
-const TERRAIN_EXAGGERATION = 0.008; // km of height per metre of elevation (×8)
 const BASE_HEIGHT = 0.05; // km
 const MAX_EXTRA = 1.9; // km
 
@@ -198,121 +194,6 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
     return moving;
   }
 
-  // ---------------- terrain (floods) ----------------
-
-  const terrain = new Group();
-  scene.add(terrain);
-  let terrainMesh = null;
-  let terrainElev = null;
-  let floodSea = null;
-  let terrainLoad = null;
-
-  function loadTerrain() {
-    terrainLoad ||= new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = ELEVATION.url;
-    }).then((img) => {
-      const size = ELEVATION.size;
-      const c = document.createElement('canvas');
-      c.width = c.height = size;
-      const ctx = c.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(img, 0, 0);
-      const px = ctx.getImageData(0, 0, size, size).data;
-      const step = mobile ? 3 : 1;
-      const n = Math.floor(size / step);
-      const pos = new Float32Array(n * n * 3);
-      const elev = new Float32Array(n * n);
-      const land = new Uint8Array(n * n);
-      for (let row = 0; row < n; row++) {
-        for (let col = 0; col < n; col++) {
-          const sr = Math.min(size - 1, row * step);
-          const sc = Math.min(size - 1, col * step);
-          const o = (sr * size + sc) * 4;
-          const k = row * n + col;
-          const e = Math.max(0.3, decodeElevation(px[o], px[o + 1]));
-          land[k] = px[o + 2] > 0 ? 1 : 0;
-          elev[k] = e;
-          const [x, y] = project(...cellLonLat(sr, sc, size));
-          pos.set([x, e * TERRAIN_EXAGGERATION, -y], k * 3);
-        }
-      }
-      const idx = [];
-      for (let row = 0; row < n - 1; row++) {
-        for (let col = 0; col < n - 1; col++) {
-          const a = row * n + col;
-          const b = a + 1;
-          const c2 = a + n;
-          const d = c2 + 1;
-          if (land[a] && land[c2] && land[b]) idx.push(a, c2, b);
-          if (land[b] && land[c2] && land[d]) idx.push(b, c2, d);
-        }
-      }
-      const geo = new BufferGeometry();
-      geo.setAttribute('position', new BufferAttribute(pos, 3));
-      geo.setAttribute('elev', new BufferAttribute(elev, 1));
-      geo.setIndex(idx);
-      geo.computeVertexNormals();
-      terrainMesh = new Mesh(geo, floodMaterial());
-      terrainElev = elev;
-      floodSea = new Mesh(new PlaneGeometry(600, 600), new MeshLambertMaterial({ color: 0x5588aa, transparent: true, opacity: 0.55, depthWrite: false }));
-      floodSea.rotation.x = -Math.PI / 2;
-      terrain.add(terrainMesh, floodSea);
-      return terrainMesh;
-    });
-    return terrainLoad;
-  }
-
-  // Flood shading runs per pixel: each fragment compares its interpolated
-  // elevation with the water level, so the waterline is smooth between samples.
-  const floodUniforms = {
-    uWater: { value: -100 },
-    uLand: { value: new Color() },
-    uShallow: { value: new Color() },
-    uDeep: { value: new Color() },
-  };
-  function floodMaterial() {
-    const mat = new MeshLambertMaterial();
-    mat.onBeforeCompile = (shader) => {
-      Object.assign(shader.uniforms, floodUniforms);
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float elev;\nvarying float vElev;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvElev = elev;');
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform float uWater;\nuniform vec3 uLand;\nuniform vec3 uShallow;\nuniform vec3 uDeep;\nvarying float vElev;')
-        .replace(
-          '#include <color_fragment>',
-          `#include <color_fragment>
-          float depth = uWater - vElev;
-          float wet = smoothstep(-0.04, 0.04, depth);
-          vec3 flood = mix(uShallow, uDeep, clamp(depth / 2.0, 0.0, 1.0));
-          diffuseColor.rgb = mix(uLand, flood, wet);`,
-        );
-    };
-    return mat;
-  }
-
-  /** Water level in metres (NAVD88): land below it turns to flood-ramp blue by depth. */
-  let lastWater = null;
-  function setWater(meters) {
-    if (!terrainMesh) return;
-    const memo = `${meters.toFixed(3)}|${state.theme}`;
-    if (memo === lastWater) return;
-    lastWater = memo;
-    const ramp = RAMPS.floods[state.theme];
-    // flooded land: the flood ramp by depth (shallow water reads Elevated, 6+ ft Severe)
-    const u = floodUniforms;
-    u.uWater.value = meters;
-    u.uLand.value.copy(srgb(hexToRgb(NEUTRAL[state.theme].land)));
-    u.uShallow.value.copy(srgb(hexToRgb(ramp[2])));
-    u.uDeep.value.copy(srgb(hexToRgb(state.theme === 'dark' ? ramp[4] : ramp[3])));
-    floodSea.position.y = Math.max(0, meters) * TERRAIN_EXAGGERATION + 0.0005;
-    floodSea.material.color.copy(srgb(hexToRgb(ramp[2])));
-    floodSea.material.opacity = 0.16;
-    state.dirty = true;
-  }
-
   // ---------------- light & sky ----------------
 
   function paintSky(top, horizon) {
@@ -326,8 +207,7 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
     ctx.fillRect(0, 0, 2, 256);
     skyTexture.needsUpdate = true;
     scene.fog.color.copy(srgb(horizon));
-    const ground = state.hazard === 'floods' ? mix(hexToRgb(NEUTRAL[state.theme].water), hexToRgb(RAMPS.floods[state.theme][0]), 0.45) : horizon;
-    sea.material.color.copy(srgb(ground));
+    sea.material.color.copy(srgb(horizon));
   }
 
   /** Light the scene for a New York local hour, e.g. "2019-07-20T16:00" (+ fractional hours). */
@@ -338,7 +218,7 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
     lastTime = memo;
     const sunNow = solarPosition(nyLocalToUtc(key) + extraHours * 3600000);
     const azimuth = sunNow.azimuth;
-    // the flood map keeps a stormy dusk light through the night so the water stays readable
+    // Sandy peaked after dark: the flood story keeps a stormy dusk light through the night so its city stays readable
     const elevation = state.hazard === 'floods' ? Math.max(sunNow.elevation, 0) : sunNow.elevation;
     state.sunElevation = elevation;
     state.smoke = smoke;
@@ -346,29 +226,27 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
     const { top, horizon } = skyAt(state.theme, elevation, smoke);
     paintSky(top, horizon);
 
-    const floods = state.hazard === 'floods';
-    // the flood map is a map first: soft, even light from the southwest so terrain and water read clearly
-    const az = ((floods ? 225 : azimuth) * Math.PI) / 180;
-    const el = ((floods ? 40 : Math.max(elevation, 2)) * Math.PI) / 180;
+    const az = (azimuth * Math.PI) / 180;
+    const el = (Math.max(elevation, 2) * Math.PI) / 180;
     sun.position.set(Math.sin(az) * Math.cos(el) * 100, Math.sin(el) * 100, -Math.cos(az) * Math.cos(el) * 100);
-    const warm = floods ? 1 : Math.min(1, Math.max(0, elevation / 25));
+    const warm = Math.min(1, Math.max(0, elevation / 25));
     sun.color.copy(srgb(mix([1, 0.62, 0.38], [1, 0.97, 0.92], warm)));
     // Physically based lights divide by π; these are fractions of "fully lit",
     // tuned so a sunlit roof shows its ramp color without blowing out.
     const PI = Math.PI;
-    sun.intensity = PI * (floods ? 0.42 : 0.62 * day * (1 - smoke * 0.5));
-    moon.intensity = PI * (floods ? 0 : 0.1 * (1 - day));
-    hemi.color.copy(srgb(floods ? [1, 1, 1] : mix(top, [1, 1, 1], 0.5)));
+    sun.intensity = PI * 0.62 * day * (1 - smoke * 0.5);
+    moon.intensity = PI * 0.1 * (1 - day);
+    hemi.color.copy(srgb(mix(top, [1, 1, 1], 0.5)));
     hemi.groundColor.copy(srgb(hexToRgb(NEUTRAL[state.theme].land)));
-    hemi.intensity = PI * (floods ? (state.theme === 'dark' ? 0.5 : 0.66) : 0.22 + 0.32 * day);
-    ambient.intensity = PI * (floods ? 0.04 : 0.03 + 0.03 * day);
+    hemi.intensity = PI * (0.22 + 0.32 * day);
+    ambient.intensity = PI * (0.03 + 0.03 * day);
 
     // smoke thickens the haze, but the city always stays visible through it
     state.fogNear = 45 - 20 * smoke;
     state.fogFar = 170 - 55 * smoke;
     applyFog();
-    // bloom only after dark, on the glowing (hottest) neighborhoods; never on the flood map
-    if (bloomPass) bloomPass.strength = floods ? 0 : 0.55 * (1 - day) * (1 - day);
+    // bloom only after dark, on the glowing (hottest) neighborhoods
+    if (bloomPass) bloomPass.strength = 0.55 * (1 - day) * (1 - day);
     state.dirty = true;
   }
 
@@ -431,7 +309,6 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
 
   /** Height (km) of the top of the neighborhood that holds a DrainWatch area. */
   function areaTop(areaId) {
-    if (state.hazard === 'floods' && terrainElev) return 0.02;
     const n = ntas && ntas.find((x) => x.areaIds.includes(areaId));
     return n ? n.mesh.scale.z : BASE_HEIGHT;
   }
@@ -439,11 +316,7 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
   async function setHazard(hazard) {
     state.hazard = hazard;
     state.glow = hazard === 'heat' ? 0.9 : hazard === 'air' ? 0.35 : 0.2;
-    const floods = hazard === 'floods';
-    city.visible = !floods;
-    terrain.visible = floods;
-    if (floods) await loadTerrain();
-    else await loadNtas();
+    await loadNtas();
     state.dirty = true;
   }
 
@@ -474,7 +347,6 @@ export async function createStage(canvas, { theme = 'light', mobile = false, blo
     setPose,
     setFrame,
     setNtaValues,
-    setWater,
     toScreen,
     areaTop,
     render,

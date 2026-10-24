@@ -36,15 +36,16 @@ scroll or one tab away. On phones the map sits on top and the cards follow.
    **Be ready** checklist (also one click from the masthead).
 5. **Compare** (masthead): any two of the 39 rated neighborhoods side by side: risk for every hazard, heat
    vulnerability, asthma burden, exposure, typical elevation and how much of each sits below Sandy's storm tide.
-6. **3D story** (masthead or the teaser): a full-screen player, not scroll-jacking. Play it, drag the scrubber, or step
-   with the arrow keys. The timeline moves hour by hour through the event (in the flood story the harbor rises over
-   USGS elevation to the level NOAA measured, then by the 2080s rise); "Who's exposed" visits the hardest-hit
-   neighborhoods.
+6. **3D story** (masthead or the teaser): a full-screen player, not scroll-jacking. Play runs continuously and loops:
+   it slows through each beat so the text can be read, keeps the camera moving at each neighborhood, and glides back
+   to the start at the end. Drag the bar or step with the arrow keys any time. The timeline moves hour by hour through
+   the event (the flood story raises the harbor to the level NOAA measured, then by the 2080s rise); "Who's exposed"
+   visits the hardest-hit neighborhoods. All four stories use the same city of raised neighborhood blocks.
 
 | Hazard | Story | 3D shows |
 | --- | --- | --- |
 | Heat | July 2019 heat wave, 72 hours | Heat index per neighborhood, sun and sky for each hour |
-| Floods | Hurricane Sandy, October 29, 2012 | The harbor rising over real terrain; flooded land shaded by depth |
+| Floods | Hurricane Sandy, October 29, 2012 | Share of each neighborhood's land under water as the harbor rises |
 | Air quality | Canadian wildfire smoke, June 7, 2023 | AQI per neighborhood; haze thickens with the smoke |
 | Wind & storms | Tropical Storm Isaias, August 4, 2020 | Peak gusts per neighborhood |
 
@@ -77,9 +78,9 @@ Add `?stills` to see the story's no-WebGL fallback.
 node --test
 ```
 
-77 tests cover the four risk models (against the NWS heat index chart, the EPA AQI breakpoints, and NWS wind and
+80 tests cover the four risk models (against the NWS heat index chart, the EPA AQI breakpoints, and NWS wind and
 flood criteria), every replay, sea level rise, the elevation helpers (higher ground, flooded land), the story's camera
-paths, beats and 3D values, the sun's position, the data layer (with a fake `fetch`), that the 3D colors match the CSS
+paths, beats, 3D values and continuous playback, the sun's position, the data layer (with a fake `fetch`), that the 3D colors match the CSS
 and the risk ramps stay quiet at Low, and that the address search is under 20 Tab presses from the top. GitHub Actions
 runs them on every push.
 
@@ -98,24 +99,28 @@ node scripts/check-console.mjs http://localhost:8000     # zero console errors, 
   only, so the theme switch never refetches tiles or touches the risk colors, and no second tile provider (or key) is
   needed. If OpenStreetMap refuses the first tiles, the map falls back once to the Humanitarian OSM style, also keyless.
 - **3D from real data, not decoration.** The city is NYC's 195 Neighborhood Tabulation Areas (NYC City Planning, via
-  the NYC Health Department), projected with Mercator and extruded. The flood story uses a heightmap baked from
-  USGS 3DEP elevation (`data/nyc-elevation.png`). Light follows the real sun position for each replayed hour.
+  the NYC Health Department), projected with Mercator and extruded, the same for all four stories. The flood story
+  measures each neighborhood against a heightmap baked from USGS 3DEP elevation (`data/nyc-elevation.png`). Light
+  follows the real sun position for each replayed hour.
 - **Differences you can see.** DrainWatch models 39 neighborhoods, and raw values barely differ across the city, so the
   3D timeline shows differences instead: for heat, how hot it feels times each neighborhood's Heat Vulnerability Index
-  factor; for air and wind, how much worse than the citywide average at that hour. Values are blended across all 195
-  neighborhoods with inverse-distance weighting, and a legend beside the city says what height and color mean. Risk
+  factor; for air and wind, how much worse than the citywide average at that hour (blended across all 195
+  neighborhoods with inverse-distance weighting); for floods, the share of each neighborhood's land below the water
+  at that moment, from the elevation heightmap. A legend beside the city says what height and color mean. Risk
   ratings appear only for the 39 rated places.
 - **Quiet when it's calm.** Low risk is a near-neutral tint in both themes; color starts at Elevated, and the light and
   dark ramps run the same way (one hue per hazard, louder toward Severe), checked by a test.
 - **No scroll-jacking.** The page scrolls normally. The 3D story lives in its own overlay with Play, a scrubber,
-  step buttons and arrow keys; the camera eases toward each position.
+  step buttons and arrow keys. Play never stops on its own: its speed eases down through each beat and back up
+  (`playRate` in `js/story/stories.js`, tested to stay smooth and keep each beat readable for 2+ seconds), and it loops.
 - **One canvas, loaded on demand.** Three.js loads the first time the story opens, never on page load. Pixel ratio is
   capped at 2; bloom is off on phones.
-- **Elevation in the browser.** `js/terrain.js` decodes the same USGS heightmap the 3D flood scene uses, for higher
+- **Elevation in the browser.** `js/terrain.js` decodes the USGS heightmap once, for the 3D flood story, higher
   ground, Compare and the Time Machine's flooded-land layer. Flooding there is a "bathtub" estimate: land below the
   water level counts as flooded whether or not water can reach it.
 - **Fallbacks.** Without WebGL, with data saver on, or on low-memory devices, the story shows pre-rendered stills
-  (`assets/stills/`). With reduced motion there are no camera flights or drift; each step cross-fades instead.
+  (`assets/stills/`). With reduced motion there are no camera flights or drift; Play moves one step every few seconds
+  and each step cross-fades instead.
 - **Every fact is text.** The beats, the annotations, the readout and an hour-by-hour table are real HTML.
 
 ## The risk model

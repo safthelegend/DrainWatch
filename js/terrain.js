@@ -177,6 +177,45 @@ export function floodByNta(grid, baseM, waterM) {
   return { total, base, added };
 }
 
+/**
+ * Each NTA's land-cell elevations, sorted, built once. With it, the share of a
+ * neighborhood under water at any level is a binary search, cheap enough to run
+ * for all 195 NTAs on every frame of the 3D flood story. `count` is the number
+ * of NTAs (the GeoJSON's length); an NTA with no cells gets an empty list.
+ */
+export function ntaElevationIndex(grid, count) {
+  const sizes = new Int32Array(count);
+  for (let k = 0; k < grid.nta.length; k++) if (grid.nta[k] >= 0 && grid.nta[k] < count) sizes[grid.nta[k]]++;
+  const lists = Array.from(sizes, (n) => new Float32Array(n));
+  const fill = new Int32Array(count);
+  for (let k = 0; k < grid.nta.length; k++) {
+    const i = grid.nta[k];
+    if (i >= 0 && i < count) lists[i][fill[i]++] = grid.elev[k];
+  }
+  for (const list of lists) list.sort();
+  return lists;
+}
+
+/** Share (0–1) of each NTA's land below `waterM` metres NAVD88; NaN for an NTA with no land. */
+export function ntaShareBelow(index, waterM) {
+  const out = new Float32Array(index.length);
+  index.forEach((list, i) => {
+    if (!list.length) {
+      out[i] = NaN;
+      return;
+    }
+    let lo = 0;
+    let hi = list.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (list[mid] < waterM) lo = mid + 1;
+      else hi = mid;
+    }
+    out[i] = lo / list.length;
+  });
+  return out;
+}
+
 /** Median elevation of a set of NTAs and the share of their land below `waterM`. */
 export function ntaElevation(grid, ntaIndices, waterM) {
   const set = new Set(ntaIndices);

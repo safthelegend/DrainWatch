@@ -13,6 +13,9 @@ import { kmBetween } from './geo.js';
 export const MHHW_NAVD_M = 0.68;
 export const FT = 0.3048;
 
+/** The last share of the flood timeline raises the sea instead of the clock. */
+export const SLR_SHARE = 0.22;
+
 const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 /** "Friday, 3 p.m." from "2019-07-19T15:00" (AP style). */
@@ -81,7 +84,7 @@ export const STORIES = {
     timeline: {
       kicker: 'One night',
       title: 'The harbor rose all day, then poured into the city',
-      dek: 'Play or drag to raise the harbor to its measured level at each hour. Land below the waterline turns to sea.',
+      dek: 'Play or drag to raise the harbor to its measured level at each hour. Each neighborhood rises with how much of its land is under water.',
     },
     beats: [
       {
@@ -299,22 +302,36 @@ export function heatHazardSmooth(heatIndex) {
 }
 
 /**
- * What the 3D city shows in the timeline, per neighborhood per hour, as 0–1
- * (0.25 = Low's near-neutral color). Raw values from 39 points barely differ
- * across the city, so the city shows differences instead:
+ * What the 3D city's blocks show in the timeline, per neighborhood per hour, with
+ * the domain that maps them onto the ramp. Raw values from 39 points barely
+ * differ across the city, so the city shows differences instead:
  *   heat:      heat danger = how hot it feels × the neighborhood's vulnerability
  *              (the risk model's Heat Vulnerability Index factor), on the 0–4 scale
  *   air, wind: the difference from the citywide average at that hour; at or below
- *              average stays in the quiet end, above it climbs the ramp
- * Floods show water on real terrain instead, so they have none.
+ *              average stays in the quiet end (0.25 = Low's near-neutral color)
+ *   floods:    the share of each neighborhood's land under water at that hour,
+ *              computed in the browser from the elevation heightmap (fromTerrain)
  */
 export function cityValues(hazard, values) {
-  if (hazard === 'floods') return null;
+  if (hazard === 'floods') {
+    // computed in the browser from the elevation heightmap (terrain.js), hour by hour
+    return {
+      values: null,
+      fromTerrain: true,
+      domain: [0, FLOOD_FULL_SHARE],
+      legend: {
+        low: 'Dry',
+        high: 'Half or more under water',
+        text: "Height and color: how much of each neighborhood's land is under water at this hour, from USGS elevation and the water level at the Battery.",
+      },
+    };
+  }
   const hours = values[0].length;
   if (hazard === 'heat') {
     const danger = values.map((row, i) => row.map((hi) => Math.min(4, heatHazardSmooth(hi) * vulnerabilityFactor(AREAS[i].hvi))));
     return {
       values: danger.map((row) => row.map((d) => d / 4)),
+      domain: [0, 1],
       legend: { low: 'Less danger', high: 'More danger', text: 'Height and color: heat danger, how hot it feels times how vulnerable each neighborhood is (NYC Heat Vulnerability Index).' },
     };
   }
@@ -326,9 +343,13 @@ export function cityValues(hazard, values) {
   const what = hazard === 'air' ? 'the air is' : 'the gusts are';
   return {
     values: diff.map((row) => row.map((d) => (d >= 0 ? 0.25 + 0.75 * (d / up) : 0.25 * (1 + d / down)))),
+    domain: [0, 1],
     legend: { low: 'Better than average', high: 'Worse than average', text: `Height and color: how much worse ${what} in each neighborhood than the city average at the same hour.` },
   };
 }
+
+/** In the flood story's 3D city, a neighborhood with this share of its land under water reaches the top of the ramp. */
+export const FLOOD_FULL_SHARE = 0.5;
 
 /** A beat stays on screen until the clock is more than this many hours past it. */
 export const BEAT_HOURS = 1;
@@ -347,6 +368,67 @@ export function beatAt(story, hourF, slr = 0) {
   });
   if (beat < 0 || story.beats[beat].slr) return beat;
   return hour - story.beats[beat].index <= BEAT_HOURS ? beat : -1;
+}
+
+// ---------------- playback ----------------
+//
+// The story's position runs 0–2: 0–1 the timeline, 1–2 "who's exposed". Play moves
+// it continuously and loops; it never stops on its own. Speed eases down through
+// each beat's window so its text can be read, then back up, with no hard stops.
+
+/** Story position of an hour on the timeline (floods: the clock fills the first 1 − SLR_SHARE). */
+function hourToPos(story, hour) {
+  if (story.hazard === 'floods') return (hour / story.peak.index) * (1 - SLR_SHARE);
+  return hour / (story.time.length - 1);
+}
+
+/** Where each step settles: one per beat of the timeline, then one per neighborhood stop. */
+export function storySteps(story) {
+  const beats = story.beats.map((b) => (b.slr ? 1 : Math.min(1, hourToPos(story, b.index) + 0.002)));
+  const stops = story.stops.map((_, i) => 1 + (i + 0.8) / story.stops.length);
+  return [...beats, ...stops];
+}
+
+export const PLAY = {
+  timelineSeconds: 9, // the whole timeline at full speed, between beats
+  beatSeconds: 3, // time to cross the two clock hours a beat is on screen
+  seaLevelSeconds: 4, // the flood story's closing sea level rise
+  stopSeconds: 4.5, // each neighborhood in "who's exposed"
+};
+
+/** The stretches of the timeline where a beat is on screen, in story positions. */
+function beatWindows(story) {
+  const hour = hourToPos(story, 1) - hourToPos(story, 0);
+  return story.beats.map((b) => {
+    if (b.slr) return { from: 1 - SLR_SHARE, to: 1, seconds: PLAY.seaLevelSeconds, ramp: 0.02 };
+    const at = hourToPos(story, b.index);
+    // the clock shows a beat's hour from half an hour before it until 1.5 hours after (beatAt)
+    return { from: at - 0.5 * hour, to: at + 1.5 * hour, seconds: PLAY.beatSeconds, ramp: hour };
+  });
+}
+
+/** Play speed at a position, in story positions per second. Always > 0 and smooth. */
+export function playRate(story, pos) {
+  if (pos >= 1) return 1 / (PLAY.stopSeconds * Math.max(1, story.stops.length));
+  const fast = 1 / PLAY.timelineSeconds;
+  let rate = fast;
+  for (const w of beatWindows(story)) {
+    const slow = Math.min(fast, (w.to - w.from) / w.seconds);
+    // 1 inside the window, easing to 0 over `ramp` on each side (cosine, so speed has no corners)
+    const gap = pos < w.from ? w.from - pos : pos > w.to ? pos - w.to : 0;
+    const inside = gap >= w.ramp ? 0 : 0.5 + 0.5 * Math.cos((Math.PI * gap) / w.ramp);
+    rate = Math.min(rate, fast + (slow - fast) * inside);
+  }
+  return rate;
+}
+
+/** Advance Play by dtMs. Past the end it wraps back to the start: { pos, looped }. */
+export function playStep(story, pos, dtMs) {
+  let p = pos;
+  // a few sub-steps so a long frame can't skip a beat's slow stretch
+  const parts = Math.max(1, Math.ceil(dtMs / 20));
+  for (let i = 0; i < parts; i++) p += (playRate(story, p) * dtMs) / parts / 1000;
+  return p >= 2 ? { pos: 0, looped: true } : { pos: p, looped: false };
 }
 
 /**

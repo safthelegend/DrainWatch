@@ -1,39 +1,39 @@
 // Drives the 3D story, which plays in its own full-screen overlay: a position
 // from 0 to 2 (0–1 the timeline, 1–2 "who's exposed") comes from the scrubber,
 // the step buttons, the keyboard or Play, never from page scroll. The position
-// becomes a camera pose, a replay hour and the text on screen.
+// becomes a camera pose, a replay hour and the text on screen. Play never stops
+// on its own: it slows through each beat, keeps the camera drifting at each
+// neighborhood, and loops back to the start.
 //
 // Works in three modes:
 //   • 3D: the WebGL stage (lazy-loaded the first time the story opens)
 //   • stills: pre-rendered images when WebGL is unavailable or the device is low-power
 //   • reduced motion: no camera flights or drift; each step cross-fades instead
 
-import { beatAt, buildStory, ntaBlender, storyTime, waterNavdMeters } from './stories.js';
+import { beatAt, buildStory, ntaBlender, playStep, SLR_SHARE, storySteps, storyTime, waterNavdMeters } from './stories.js';
 import { clamp01, lerpPose, poseAt, stepAt, stepPath } from './camera.js';
 import { nyLocalToUtc, solarPosition } from './sun.js';
+import { loadTerrain, ntaElevationIndex, ntaShareBelow } from '../terrain.js';
 import { esc } from '../ui.js';
 
 const $ = (id) => document.getElementById(id);
 const mobileQuery = window.matchMedia('(max-width: 860px)');
 const reducedQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-// Camera keyframes (center lon/lat · distance km · compass bearing faced · tilt from straight down)
-// framed so all five boroughs fit beside the text, Staten Island and the Rockaways included
-const CITY = {
+// Camera keyframes (center lon/lat · distance km · compass bearing faced · tilt from straight down),
+// the same for every story: framed so all five boroughs fit beside the text,
+// Staten Island and the Rockaways included
+const CAMERA = {
   hero: { lon: -73.95, lat: 40.69, dist: 80, bearing: 24, tilt: 54 },
   start: { lon: -73.97, lat: 40.67, dist: 84, bearing: 22, tilt: 44 },
   end: { lon: -73.96, lat: 40.68, dist: 76, bearing: 30, tilt: 48 },
   stepDist: 30,
   stepTilt: 47,
 };
-const HARBOR = {
-  hero: { lon: -73.88, lat: 40.65, dist: 66, bearing: 58, tilt: 54 },
-  start: { lon: -73.98, lat: 40.655, dist: 82, bearing: 10, tilt: 34 },
-  end: { lon: -73.98, lat: 40.65, dist: 74, bearing: 18, tilt: 40 },
-  stepDist: 32,
-  stepTilt: 40,
-};
-const CAMERAS = { heat: CITY, air: CITY, wind: CITY, floods: HARBOR };
+// while Play stays on a neighborhood, the camera keeps orbiting this far (and moves this much closer)
+const STOP_DRIFT = { bearing: 14, zoom: 0.92 };
+// when Play loops, the camera glides from the last neighborhood back to the citywide view
+const GLIDE_MS = 1800;
 
 // reference line on the timeline strip
 const REFERENCE = {
@@ -42,8 +42,6 @@ const REFERENCE = {
   wind: { value: 58, label: 'Damaging 58 mph' },
   floods: { value: null, label: 'Flood stage' },
 };
-
-const SLR_SHARE = 0.22; // the last share of the flood timeline raises the sea instead of the clock
 
 export function createStoryController({ theme, onStoryChange, onPosition } = {}) {
   let stage = null;
@@ -63,6 +61,8 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
   let lastStep = -1;
   let lastBeat = -2;
   let attachedAt = 0;
+  let lastPose = null;
+  let glide = null; // { from, start }: the camera easing home after Play loops
 
   const reduced = () => reducedQuery.matches;
   const mobile = () => mobileQuery.matches;
@@ -81,8 +81,7 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     $('clock-time').textContent = storyTime(story.time[0]);
     $('readout-num').textContent = story.hazard === 'floods' ? story.citywide[0].toFixed(1) : Math.round(story.citywide[0]);
     // what the city's height and color mean in this story
-    const legend = story.city ? story.city.legend : { low: 'Shallow', high: 'Deep', text: 'Color: land under water, shaded by how deep it is (USGS elevation).' };
-    $('city-legend').dataset.kind = story.city ? 'city' : 'water';
+    const { legend } = story.city;
     $('city-legend-low').textContent = legend.low;
     $('city-legend-high').textContent = legend.high;
     $('city-legend-text').textContent = legend.text;
@@ -94,10 +93,7 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     $('exposed-kicker').textContent = story.exposed.kicker;
     $('exposed-title').textContent = story.exposed.title;
     $('exposed-dek').textContent = story.exposed.dek;
-    $('exposed-note').textContent =
-      story.hazard === 'floods'
-        ? 'Water at its measured peak. Land below the waterline is shaded by flood depth.'
-        : 'Raised and colored: the 39 neighborhoods DrainWatch rates, by risk at the peak. Flat: not rated.';
+    $('exposed-note').textContent = 'Raised and colored: the 39 neighborhoods DrainWatch rates, by risk at the peak. Flat: not rated.';
     $('stops').innerHTML = story.stops
       .map(
         (e, i) => `<li data-i="${i}"><span>${esc(e.area.name)}</span>
@@ -210,8 +206,7 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
   function applyRisk() {
     if (!stage || !riskNta) return;
     stage.setTime(story.time[story.peak.index], 0, story.hazard === 'air' ? 0.5 * clamp01((story.peak.value - 100) / 300) : 0);
-    if (story.hazard === 'floods') stage.setWater(waterNavdMeters(story.peak.value));
-    else stage.setNtaValues(riskNta, [0, 4]);
+    stage.setNtaValues(riskNta, [0, 4]);
   }
 
   function applyData(hourF, slr) {
@@ -221,14 +216,15 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     const key = story.time[k];
     const smoke = story.hazard === 'air' ? clamp01((citywideAt(hourF, 0) - 100) / 300) : 0;
     stage.setTime(key, frac, smoke);
-    if (story.hazard === 'floods') {
-      stage.setWater(waterNavdMeters(citywideAt(hourF, slr)));
+    if (story.city.fromTerrain) {
+      // floods: the share of each neighborhood's land below the water at this moment
+      if (floodIndex) stage.setNtaValues(ntaShareBelow(floodIndex, waterNavdMeters(citywideAt(hourF, slr))), story.city.domain);
     } else if (blend) {
       const a = blend(k);
       const b = blend(Math.min(story.time.length - 1, k + 1));
       const v = new Float32Array(a.length);
       for (let i = 0; i < a.length; i++) v[i] = lerp(a[i], b[i], frac);
-      stage.setNtaValues(v, [0, 1]);
+      stage.setNtaValues(v, story.city.domain);
     }
   }
 
@@ -238,28 +234,27 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     // phones: the city sits in the strip above the text sheet (56svh) and the timeline strip
     if (mobile()) return section === 'hero' ? { x: 0, y: H * 0.4 } : { x: 0, y: -H * 0.27 };
     const side = Math.min(W * 0.36, 540);
-    return section === 'hero' ? { x: W * (story && story.hazard === 'floods' ? 0.32 : 0.2), y: H * 0.04 } : { x: side / 2, y: -54 };
+    return section === 'hero' ? { x: W * 0.2, y: H * 0.04 } : { x: side / 2, y: -54 };
   }
 
   function exposedPath() {
-    const cam = CAMERAS[story.hazard];
     const poses = story.stops.map((e) => ({
       lon: e.area.lon,
       lat: e.area.lat,
-      dist: cam.stepDist * (mobile() ? 1.3 : 1),
+      dist: CAMERA.stepDist * (mobile() ? 1.3 : 1),
       bearing: e.bearing,
-      tilt: cam.stepTilt - (mobile() ? 10 : 0),
+      tilt: CAMERA.stepTilt - (mobile() ? 10 : 0),
     }));
-    return stepPath(poses, { start: timelineEnd() });
+    return stepPath(poses, { start: timelineEnd(), drift: reduced() ? null : STOP_DRIFT });
   }
 
   // A portrait phone sees a narrow slice of the city, so citywide shots pull far back to fit its width.
   const adjust = (pose) => (mobile() ? { ...pose, dist: pose.dist * 2.05, tilt: Math.max(1, pose.tilt - 10) } : pose);
-  const timelineStart = () => adjust(CAMERAS[story.hazard].start);
-  const timelineEnd = () => adjust(mobile() ? { ...CAMERAS[story.hazard].end, bearing: CAMERAS[story.hazard].start.bearing } : CAMERAS[story.hazard].end);
+  const timelineStart = () => adjust(CAMERA.start);
+  const timelineEnd = () => adjust(mobile() ? { ...CAMERA.end, bearing: CAMERA.start.bearing } : CAMERA.end);
 
   function heroPose(time) {
-    const hero = CAMERAS[story.hazard].hero;
+    const hero = CAMERA.hero;
     // on phones the city sits small in the bottom third, below the headline and search
     const base = mobile() ? { ...hero, dist: hero.dist * 2.2, tilt: hero.tilt - 6 } : hero;
     if (reduced()) return base;
@@ -303,6 +298,13 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
       hourF = lerp(story.heroIndex, 0, exit);
     }
     if (p.exposed <= 0) hideAnnotation();
+    // after a loop the story is already back at the start; the camera glides there
+    if (glide) {
+      const t = clamp01((time - glide.start) / GLIDE_MS);
+      pose = lerpPose(glide.from, pose, t, { arc: 0.25 });
+      if (t >= 1) glide = null;
+    }
+    lastPose = pose;
 
     if (mode === 'stage') {
       stage.instant = reduced();
@@ -417,18 +419,7 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
   // ---------------- position, steps and playback ----------------
 
   /** Where each step settles: one per beat of the timeline, then one per neighborhood stop. */
-  function steps() {
-    if (!story) return [0];
-    const last = story.time.length - 1;
-    const split = 1 - SLR_SHARE;
-    const beats = story.beats.map((b) => {
-      if (b.slr) return 1;
-      const p = story.hazard === 'floods' ? (b.index / story.peak.index) * split : b.index / last;
-      return Math.min(1, p + 0.002);
-    });
-    const stops = story.stops.map((_, i) => 1 + (i + 0.8) / story.stops.length);
-    return [...beats, ...stops];
-  }
+  const steps = () => (story ? storySteps(story) : [0]);
 
   const chapter = () => (pos > 1 ? 'exposed' : 'timeline');
 
@@ -458,44 +449,38 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     seek(list[Math.max(0, Math.min(list.length - 1, next))]);
   }
 
-  // Play: the timeline sweeps hour by hour in about 15 seconds, then each stop holds
-  // for a few seconds. With reduced motion it steps instead of sweeping.
-  const TIMELINE_MS = 15000;
+  // Play moves continuously (stories.js playStep): quick between beats, slow through
+  // each beat so it can be read, steady through the neighborhoods, then back to the
+  // start, forever, until the reader pauses, drags, steps or closes. With reduced
+  // motion it moves one step every few seconds instead, and loops the same way.
   const STOP_MS = 3500;
-  const BEAT_HOLD_MS = 3000; // Play pauses on each beat so its text can be read
-  let holdUntil = 0;
   function advance(time) {
     const dt = Math.min(100, time - lastTime);
-    if (time < holdUntil) return;
     if (reduced()) {
       if (time < nextStepAt) return;
       nextStepAt = time + STOP_MS;
       const list = steps();
       const i = currentStep();
-      if (i >= list.length - 1 && pos >= list[list.length - 1] - 0.001) return setPlaying(false);
-      seek(list[pos < list[0] ? 0 : i + 1], { stop: false });
+      const atEnd = i >= list.length - 1 && pos >= list[list.length - 1] - 0.001;
+      seek(atEnd ? list[0] : list[pos < list[0] ? 0 : i + 1], { stop: false });
       return;
     }
-    const rate = pos < 1 ? 1 / TIMELINE_MS : 1 / (STOP_MS * Math.max(1, story.stops.length));
-    const end = steps().at(-1);
-    let next = Math.min(end, pos + dt * rate);
-    const beat = steps()
-      .slice(0, story.beats.length)
-      .find((p) => p > pos && p <= next);
-    if (beat != null) {
-      next = beat;
-      holdUntil = time + BEAT_HOLD_MS;
-    }
-    seek(next, { stop: false });
-    if (pos >= end) setPlaying(false);
+    const next = playStep(story, pos, dt);
+    if (next.looped) restart(time);
+    else seek(next.pos, { stop: false });
+  }
+
+  /** Loop: the story jumps back to its first hour while the camera glides home from the last neighborhood. */
+  function restart(time) {
+    if (mode === 'stage' && lastPose) glide = { from: lastPose, start: time };
+    seek(0, { stop: false });
+    for (const key of Object.keys(target)) shown[key] = target[key];
+    lastBeat = -2;
+    lastStep = -2;
   }
 
   function setPlaying(on) {
     playing = on;
-    // starting on a beat (as the story does when it opens): read it before moving on
-    const onBeat = story && steps().slice(0, story.beats.length).some((p) => Math.abs(p - pos) < 0.001);
-    holdUntil = on && onBeat ? performance.now() + BEAT_HOLD_MS : 0;
-    if (on && pos >= steps().at(-1) - 0.001) seek(0, { stop: false });
     nextStepAt = 0;
     onPosition?.({ pos, chapter: chapter(), playing, step: currentStep(), steps: steps().length });
   }
@@ -538,15 +523,17 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
     lastShot = null;
   }
 
+  /** Floods: each neighborhood's land elevations, sorted once, for "how much is under water" (terrain.js). */
+  let floodIndex = null;
+
   async function prepareStage() {
     await stage.setHazard(story.hazard);
-    if (story.hazard !== 'floods') {
-      const features = await stage.loadNtas().then(() => stage.ntaFeatures);
-      blend = ntaBlender(features, story);
-      riskNta = new Float32Array(features.map((f) => (f.properties.areas.length ? Math.max(...f.properties.areas.map((id) => story.riskByArea[id])) : NaN)));
-    } else {
-      blend = null;
-      riskNta = new Float32Array(0);
+    const features = await stage.loadNtas().then(() => stage.ntaFeatures);
+    riskNta = new Float32Array(features.map((f) => (f.properties.areas.length ? Math.max(...f.properties.areas.map((id) => story.riskByArea[id])) : NaN)));
+    blend = story.city.fromTerrain ? null : ntaBlender(features, story);
+    if (story.city.fromTerrain && !floodIndex) {
+      const grid = await loadTerrain();
+      floodIndex = grid ? ntaElevationIndex(grid, features.length) : null;
     }
   }
 
@@ -572,6 +559,7 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
   /** Show the story from the top: the camera flies in from the wide hero shot. */
   function open({ autoplay = !reduced() } = {}) {
     for (const key of Object.keys(shown)) shown[key] = 0;
+    glide = null;
     lastShot = null;
     lastBeat = -2;
     lastStep = -2;
@@ -588,6 +576,7 @@ export function createStoryController({ theme, onStoryChange, onPosition } = {})
   function close() {
     running = false;
     playing = false;
+    glide = null;
     hideAnnotation();
   }
 

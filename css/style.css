@@ -1702,9 +1702,6 @@ body.no-stage #stage {
   border-radius: 2px;
   background: linear-gradient(to right, var(--r0), var(--r1) 25%, var(--r2) 50%, var(--r3) 75%, var(--r4));
 }
-.city-legend[data-kind='water'] .city-legend-bar {
-  background: linear-gradient(to right, var(--r2), var(--r3), var(--r4));
-}
 .city-legend-ends {
   display: flex;
   justify-content: space-between;
