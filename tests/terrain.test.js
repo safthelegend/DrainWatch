@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compassWord, elevationAt, findHigherGround, floodByNta, floodRaster, floodStats, gridFromPixels, ntaElevation, waterNavdMeters } from '../js/terrain.js';
+import { compassWord, elevationAt, findHigherGround, floodByNta, floodRaster, floodStats, gridFromPixels, ntaElevation, ntaElevationIndex, ntaShareBelow, waterNavdMeters } from '../js/terrain.js';
 import { seaLevelNote, seaLevelPeriod, seaLevelStopFor, SLR_MAX_INCHES } from '../js/scenarios.js';
 
 const SIZE = 20;
@@ -98,4 +98,18 @@ test('sea level rise is described against the NPCC projections', () => {
   assert.match(seaLevelNote(29), /middle .* likely range for the 2080s/);
   assert.match(seaLevelNote(40), /likely range for 2100/);
   assert.match(seaLevelNote(70), /above every likely range/);
+});
+
+test('the share of each neighborhood under water matches a full count at any level', () => {
+  const g = grid();
+  const index = ntaElevationIndex(g, 3); // NTAs 0 and 1 have land; NTA 2 has none
+  for (const level of [0.5, 3.5, 5.5, 20]) {
+    const share = ntaShareBelow(index, level);
+    const by = floodByNta(g, level, level);
+    assert.ok(Math.abs(share[0] - by.base[0] / by.total[0]) < 1e-9, `NTA 0 at ${level} m`);
+    assert.ok(Math.abs(share[1] - by.base[1] / by.total[1]) < 1e-9, `NTA 1 at ${level} m`);
+    assert.ok(Number.isNaN(share[2]), 'a neighborhood with no land has no share');
+  }
+  assert.equal(ntaShareBelow(index, 0.5)[0], 0, 'dry below the lowest land');
+  assert.equal(ntaShareBelow(index, 99)[0], 1, 'all under at a very high level');
 });

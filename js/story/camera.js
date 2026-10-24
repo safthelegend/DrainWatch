@@ -45,8 +45,9 @@ export function lerpPose(a, b, t, { arc = 0, ease = easeInOutCubic } = {}) {
 }
 
 /**
- * A path of keyframes [{ at: 0..1, pose, arc? }]. Returns the pose at progress p.
- * Between keyframes the camera eases; `arc` on the destination key adds the pull-back.
+ * A path of keyframes [{ at: 0..1, pose, arc?, linear? }]. Returns the pose at progress p.
+ * Between keyframes the camera eases (or moves at a steady pace into a `linear` key);
+ * `arc` on the destination key adds the pull-back.
  */
 export function poseAt(path, p) {
   if (p <= path[0].at) return { ...path[0].pose };
@@ -55,7 +56,7 @@ export function poseAt(path, p) {
     if (p <= k.at) {
       const prev = path[i - 1];
       const t = (p - prev.at) / (k.at - prev.at || 1);
-      return lerpPose(prev.pose, k.pose, t, { arc: k.arc || 0 });
+      return lerpPose(prev.pose, k.pose, t, { arc: k.arc || 0, ...(k.linear ? { ease: (x) => x } : {}) });
     }
   }
   return { ...path[path.length - 1].pose };
@@ -64,14 +65,17 @@ export function poseAt(path, p) {
 /**
  * Story steps: step i owns the slice [i/n, (i+1)/n] of the story.
  * The camera flies from the previous pose during the first `fly` share of the
- * slice, then holds still so the reader can read the annotation.
+ * slice, then stays on that neighborhood while the reader reads the annotation.
+ * With `drift` ({ bearing: degrees, zoom: factor }) it keeps orbiting slowly there
+ * instead of parking, so continuous play never comes to a dead stop.
  */
-export function stepPath(poses, { start = null, fly = 0.45, arc = 0.6 } = {}) {
+export function stepPath(poses, { start = null, fly = 0.45, arc = 0.6, drift = null } = {}) {
   const n = poses.length;
   const path = [{ at: 0, pose: start || poses[0] }];
   poses.forEach((pose, i) => {
     path.push({ at: (i + fly) / n, pose, arc });
-    path.push({ at: (i + 1) / n, pose });
+    const end = drift ? { ...pose, bearing: (pose.bearing + drift.bearing + 360) % 360, dist: pose.dist * (drift.zoom ?? 1) } : pose;
+    path.push({ at: (i + 1) / n, pose: end, linear: Boolean(drift) });
   });
   return path;
 }
