@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { centroid, idw, inGeometry, kmBetween, project, unproject } from '../js/story/geo.js';
 import { daylight, nyLocalToUtc, solarPosition } from '../js/story/sun.js';
 import { lerpPose, poseAt, poseToCamera, stepAt, stepPath, turn } from '../js/story/camera.js';
-import { beatAt, buildStory, heatHazardSmooth, ntaBlender, playRate, playStep, SLR_SHARE, storySteps, storyTime, STORIES, waterNavdMeters } from '../js/story/stories.js';
+import { beatAt, buildStory, heatHazardSmooth, ntaBlender, playClock, playRate, playStep, SLR_SHARE, storySteps, storyTime, STORIES, waterNavdMeters } from '../js/story/stories.js';
 import { extract, parseCsv } from '../scripts/import-heat-drivers.mjs';
 import { AREAS } from '../js/config.js';
 
@@ -275,6 +275,30 @@ test('Play never stops: it slows through each beat, moves smoothly and loops', (
     }
     assert.ok(looped && pos === 0, `${hazard}: loops back to the start`);
     assert.ok(ms > 20000 && ms < 60000, `${hazard}: one loop takes ${(ms / 1000).toFixed(1)} s`);
+  }
+});
+
+test('the player bar moves at one steady speed through Play, and maps back to the story', () => {
+  for (const hazard of Object.keys(STORIES)) {
+    const s = buildStory(hazard);
+    const clock = playClock(s);
+    assert.equal(clock.toBar(0), 0);
+    assert.ok(Math.abs(clock.toBar(2) - 1) < 1e-9, `${hazard}: ends full`);
+    // during Play, every second moves the bar the same distance, beats included
+    const perSecond = 1 / clock.seconds;
+    let pos = 0;
+    let bar = 0;
+    for (let t = 0; t < 120000; t += 16) {
+      const next = playStep(s, pos, 16);
+      if (next.looped) break;
+      const b = clock.toBar(next.pos);
+      const speed = (b - bar) / 0.016;
+      assert.ok(Math.abs(speed - perSecond) < perSecond * 0.01, `${hazard}: bar speed ${speed.toFixed(4)}/s at ${next.pos.toFixed(3)}`);
+      pos = next.pos;
+      bar = b;
+    }
+    // dragging the bar lands on the matching story position
+    for (let p = 0; p <= 2; p += 0.01) assert.ok(Math.abs(clock.toPos(clock.toBar(p)) - p) < 1e-6, `${hazard}: round trip at ${p.toFixed(2)}`);
   }
 });
 
